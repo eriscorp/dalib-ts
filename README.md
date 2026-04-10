@@ -1,4 +1,4 @@
-# dalib
+# @eriscorp/dalib-ts
 
 TypeScript library for parsing and manipulating [Dark Ages](https://www.darkages.com/) (DOOMVAS v1) game client files.
 
@@ -9,7 +9,7 @@ Translated from [eriscorp/dalib](https://github.com/eriscorp/dalib), the origina
 ## Installation
 
 ```bash
-npm install dalib
+npm install @eriscorp/dalib-ts
 ```
 
 ---
@@ -37,7 +37,7 @@ npm install dalib
 ### Reading a data archive (Node.js)
 
 ```ts
-import { DataArchive } from 'dalib';
+import { DataArchive } from '@eriscorp/dalib-ts';
 
 const archive = DataArchive.fromFile('path/to/archive.dat');
 
@@ -54,7 +54,7 @@ if (entry) {
 ### Reading a data archive (browser)
 
 ```ts
-import { DataArchive } from 'dalib';
+import { DataArchive } from '@eriscorp/dalib-ts';
 
 const response = await fetch('archive.dat');
 const buffer = await response.arrayBuffer();
@@ -64,7 +64,7 @@ const archive = DataArchive.fromBuffer(buffer);
 ### Parsing a sprite file
 
 ```ts
-import { DataArchive, SpfFile, Palette } from 'dalib';
+import { DataArchive, SpfFile, Palette } from '@eriscorp/dalib-ts';
 
 const archive = DataArchive.fromFile('seo.dat');
 
@@ -78,7 +78,7 @@ const palette = Palette.fromBuffer(archive.getEntryBuffer(palEntry));
 ### Rendering to ImageData
 
 ```ts
-import { renderSpfPalettized } from 'dalib';
+import { renderSpfPalettized } from '@eriscorp/dalib-ts';
 
 const frame = spf.frames[0];
 const rgbaFrame = renderSpfPalettized(frame, palette);
