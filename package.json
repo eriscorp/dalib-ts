@@ -1,6 +1,6 @@
 {
   "name": "@eriscorp/dalib-ts",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "JavaScript/TypeScript library for parsing and manipulating Dark Ages (DOOMVAS v1) game client files",
   "type": "module",
   "exports": {
