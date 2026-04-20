@@ -31,3 +31,15 @@ jobs:
 
       - name: Publish to npm
         run: npm publish
+
+      - name: Notify Discord
+        if: success()
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $repo = "${{ github.repository }}"
+          $releaseUrl = "https://github.com/$repo/releases/tag/$tag"
+          $body = @{
+            content = "**@eriscorp/dalib-ts $tag** is now available on npm!`n$releaseUrl"
+          } | ConvertTo-Json
+          Invoke-RestMethod -Uri "${{ secrets.DISCORD_WEBHOOK_URL }}" -Method Post -ContentType "application/json" -Body $body

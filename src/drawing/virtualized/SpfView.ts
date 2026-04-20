@@ -8,7 +8,7 @@ import type { SpfFrame } from '../SpfFrame.js';
 
 interface SpfTocEntry {
   left: number; top: number; right: number; bottom: number;
-  unknown1: number; unknown2: number;
+  centerX: number; centerY: number; flags: number;
   startAddress: number; byteWidth: number; byteCount: number; imageByteCount: number;
 }
 
@@ -51,7 +51,10 @@ export class SpfView {
 
     const frame: SpfFrame = {
       left: t.left, top: t.top, right: t.right, bottom: t.bottom,
-      unknown2: t.unknown2,
+      centerX: t.centerX,
+      centerY: t.centerY,
+      flags: t.flags,
+      hasCenterPoint: (t.flags & 1) !== 0,
       startAddress: t.startAddress,
       byteWidth: t.byteWidth,
       byteCount: t.byteCount,
@@ -107,8 +110,9 @@ export class SpfView {
         top: reader.readUInt16LE(),
         right: reader.readUInt16LE(),
         bottom: reader.readUInt16LE(),
-        unknown1: reader.readUInt32LE(),
-        unknown2: reader.readUInt32LE(),
+        centerX: reader.readInt16LE(),
+        centerY: reader.readInt16LE(),
+        flags: reader.readUInt32LE(),
         startAddress: reader.readUInt32LE(),
         byteWidth: reader.readUInt32LE(),
         byteCount: reader.readUInt32LE(),

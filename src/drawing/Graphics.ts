@@ -1,6 +1,6 @@
 import type { Color, RgbaFrame } from '../constants.js';
 import { TILE_WIDTH, TILE_HEIGHT, TRANSPARENT } from '../constants.js';
-import { EfaBlendingType } from '../enums.js';
+import { AlphaMode, EfaBlendingType } from '../enums.js';
 import { decodeRgb565 } from '../utility/ColorCodec.js';
 import type { EfaFrame } from './EfaFrame.js';
 import type { EpfFrame } from './EpfFrame.js';
@@ -22,6 +22,11 @@ import type { Tile } from './Tile.js';
 /**
  * Render a palettized frame (1 byte per pixel) to an RgbaFrame.
  * Palette index 0 is always treated as transparent.
+ *
+ * @param alphaMode How RGB channels are stored relative to alpha.
+ *   Default {@link AlphaMode.Straight} matches canvas `ImageData`; pass
+ *   {@link AlphaMode.Premultiplied} for consumers that need baked-in alpha
+ *   (WebGL texture uploads with `UNPACK_PREMULTIPLY_ALPHA_WEBGL`, etc.).
  */
 export function renderPalettized(
   left: number,
@@ -30,6 +35,7 @@ export function renderPalettized(
   height: number,
   data: Uint8Array,
   palette: Palette,
+  alphaMode: AlphaMode = AlphaMode.Straight,
 ): RgbaFrame {
   const dstOffsetX = Math.max(0, left);
   const dstOffsetY = Math.max(0, top);
@@ -43,10 +49,7 @@ export function renderPalettized(
       const paletteIndex = data[y * width + x]!;
       const color = paletteIndex === 0 ? TRANSPARENT : palette.get(paletteIndex);
       const dst = ((y + dstOffsetY) * bitmapWidth + (x + dstOffsetX)) * 4;
-      pixels[dst] = color.r;
-      pixels[dst + 1] = color.g;
-      pixels[dst + 2] = color.b;
-      pixels[dst + 3] = color.a;
+      writePixel(pixels, dst, color.r, color.g, color.b, color.a, alphaMode);
     }
   }
 
@@ -63,6 +66,7 @@ export function renderColorized(
   width: number,
   height: number,
   colorData: Color[],
+  alphaMode: AlphaMode = AlphaMode.Straight,
 ): RgbaFrame {
   const dstOffsetX = Math.max(0, left);
   const dstOffsetY = Math.max(0, top);
@@ -77,14 +81,36 @@ export function renderColorized(
       // Skip transparent-black and pure-black (they represent transparency in DA formats)
       if ((color.r === 0 && color.g === 0 && color.b === 0)) continue;
       const dst = ((y + dstOffsetY) * bitmapWidth + (x + dstOffsetX)) * 4;
-      pixels[dst] = color.r;
-      pixels[dst + 1] = color.g;
-      pixels[dst + 2] = color.b;
-      pixels[dst + 3] = color.a;
+      writePixel(pixels, dst, color.r, color.g, color.b, color.a, alphaMode);
     }
   }
 
   return { width: bitmapWidth, height: bitmapHeight, data: pixels };
+}
+
+/**
+ * Write one RGBA pixel respecting {@link AlphaMode}.
+ * For {@link AlphaMode.Premultiplied}, RGB is scaled by `alpha / 255` using round-half-up.
+ */
+function writePixel(
+  pixels: Uint8ClampedArray,
+  offset: number,
+  r: number,
+  g: number,
+  b: number,
+  a: number,
+  alphaMode: AlphaMode,
+): void {
+  if (alphaMode === AlphaMode.Premultiplied && a < 255) {
+    pixels[offset] = Math.round((r * a) / 255);
+    pixels[offset + 1] = Math.round((g * a) / 255);
+    pixels[offset + 2] = Math.round((b * a) / 255);
+  } else {
+    pixels[offset] = r;
+    pixels[offset + 1] = g;
+    pixels[offset + 2] = b;
+  }
+  pixels[offset + 3] = a;
 }
 
 // ---------------------------------------------------------------------------
@@ -92,28 +118,72 @@ export function renderColorized(
 // ---------------------------------------------------------------------------
 
 /** Render an HpfFile to an RgbaFrame using the supplied palette. */
-export function renderHpf(hpf: HpfFile, palette: Palette, yOffset = 0): RgbaFrame {
-  return renderPalettized(0, yOffset, hpf.pixelWidth, hpf.pixelHeight, hpf.data, palette);
+export function renderHpf(
+  hpf: HpfFile,
+  palette: Palette,
+  yOffset = 0,
+  alphaMode: AlphaMode = AlphaMode.Straight,
+): RgbaFrame {
+  return renderPalettized(0, yOffset, hpf.pixelWidth, hpf.pixelHeight, hpf.data, palette, alphaMode);
 }
 
 /** Render a palettized SpfFrame to an RgbaFrame. */
-export function renderSpfPalettized(frame: SpfFrame, palette: Palette): RgbaFrame {
-  return renderPalettized(frame.left, frame.top, spfFrameWidth(frame), spfFrameHeight(frame), frame.data!, palette);
+export function renderSpfPalettized(
+  frame: SpfFrame,
+  palette: Palette,
+  alphaMode: AlphaMode = AlphaMode.Straight,
+): RgbaFrame {
+  return renderPalettized(
+    frame.left,
+    frame.top,
+    spfFrameWidth(frame),
+    spfFrameHeight(frame),
+    frame.data!,
+    palette,
+    alphaMode,
+  );
 }
 
 /** Render a colorized SpfFrame to an RgbaFrame. */
-export function renderSpfColorized(frame: SpfFrame): RgbaFrame {
-  return renderColorized(frame.left, frame.top, spfFrameWidth(frame), spfFrameHeight(frame), frame.colorData!);
+export function renderSpfColorized(
+  frame: SpfFrame,
+  alphaMode: AlphaMode = AlphaMode.Straight,
+): RgbaFrame {
+  return renderColorized(frame.left, frame.top, spfFrameWidth(frame), spfFrameHeight(frame), frame.colorData!, alphaMode);
 }
 
 /** Render an MpfFrame to an RgbaFrame using the supplied palette. */
-export function renderMpf(frame: MpfFrame, palette: Palette): RgbaFrame {
-  return renderPalettized(frame.left, frame.top, mpfFrameWidth(frame), mpfFrameHeight(frame), frame.data, palette);
+export function renderMpf(
+  frame: MpfFrame,
+  palette: Palette,
+  alphaMode: AlphaMode = AlphaMode.Straight,
+): RgbaFrame {
+  return renderPalettized(
+    frame.left,
+    frame.top,
+    mpfFrameWidth(frame),
+    mpfFrameHeight(frame),
+    frame.data,
+    palette,
+    alphaMode,
+  );
 }
 
-/** Render an EpfFrame to an RgbaFrame using the supplied palette. */
-export function renderEpf(frame: EpfFrame, palette: Palette): RgbaFrame {
-  return renderPalettized(frame.left, frame.top, epfFrameWidth(frame), epfFrameHeight(frame), frame.data, palette);
+/**
+ * Render an EpfFrame to an RgbaFrame using the supplied palette.
+ * Zero-dimension frames return a 1×1 transparent frame (matches upstream DALib guard).
+ */
+export function renderEpf(
+  frame: EpfFrame,
+  palette: Palette,
+  alphaMode: AlphaMode = AlphaMode.Straight,
+): RgbaFrame {
+  const width = epfFrameWidth(frame);
+  const height = epfFrameHeight(frame);
+  if (width <= 0 || height <= 0) {
+    return { width: 1, height: 1, data: new Uint8ClampedArray(4) };
+  }
+  return renderPalettized(frame.left, frame.top, width, height, frame.data, palette, alphaMode);
 }
 
 /**
@@ -123,6 +193,7 @@ export function renderEpf(frame: EpfFrame, palette: Palette): RgbaFrame {
 export function renderEfa(
   frame: EfaFrame,
   blendingType: EfaBlendingType = EfaBlendingType.Additive,
+  alphaMode: AlphaMode = AlphaMode.Straight,
 ): RgbaFrame {
   if (frame.byteCount === 0 || frame.byteWidth === 0) {
     const w = Math.max(1, frame.imagePixelWidth);
@@ -192,10 +263,7 @@ export function renderEfa(
       const dstX = x + dstOffsetX;
       const dstY = y + dstOffsetY;
       const dst = (dstY * bitmapWidth + dstX) * 4;
-      pixels[dst] = color.r;
-      pixels[dst + 1] = color.g;
-      pixels[dst + 2] = color.b;
-      pixels[dst + 3] = alpha;
+      writePixel(pixels, dst, color.r, color.g, color.b, alpha, alphaMode);
     }
   }
 
@@ -269,8 +337,12 @@ function decodeRleAlphaSurface(alphaData: Uint8Array, width: number, height: num
 // ---------------------------------------------------------------------------
 
 /** Render a palettized ground tile (56×27) to an RgbaFrame. */
-export function renderTile(tile: Tile, palette: Palette): RgbaFrame {
-  return renderPalettized(0, 0, TILE_WIDTH, TILE_HEIGHT, tile.data, palette);
+export function renderTile(
+  tile: Tile,
+  palette: Palette,
+  alphaMode: AlphaMode = AlphaMode.Straight,
+): RgbaFrame {
+  return renderPalettized(0, 0, TILE_WIDTH, TILE_HEIGHT, tile.data, palette, alphaMode);
 }
 
 // ---------------------------------------------------------------------------

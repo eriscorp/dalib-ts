@@ -52,6 +52,30 @@ export const enum MpfFormatType {
   SingleAttack = 0,
 }
 
+/**
+ * Idle-animation classification for MPF files.
+ * Determined by {@link MpfFile.detectIdleType} from standingFrameCount / optionalAnimationFrameCount.
+ */
+export const enum MpfIdleType {
+  /** No idle animation; a single static frame is displayed. */
+  StaticNoIdle = 0,
+  /** Standard idle loop; the raw animation byte encodes interval (ms ÷ 100). */
+  NormalIdle = 1,
+  /** Standard idle plus an optional animation; the raw byte encodes the probability of the optional playing. */
+  NormalPlusOptional = 2,
+}
+
+/**
+ * Alpha representation used when writing RGBA output buffers.
+ * Defaults to {@link AlphaMode.Straight} which matches the browser `ImageData` contract.
+ */
+export const enum AlphaMode {
+  /** Channels are stored as-is (not multiplied by alpha). Canvas-compatible. */
+  Straight = 0,
+  /** R/G/B are pre-multiplied by alpha (needed for some WebGL / native consumers). */
+  Premultiplied = 1,
+}
+
 /** SPF file format variant. */
 export const enum SpfFormatType {
   /**

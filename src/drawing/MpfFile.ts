@@ -1,5 +1,6 @@
 import type { RgbaFrame } from '../constants.js';
 import type { DataArchiveEntry } from '../data/DataArchiveEntry.js';
+import { MpfFormatType, MpfHeaderType, MpfIdleType } from '../enums.js';
 import { SpanReader } from '../io/SpanReader.js';
 import { SpanWriter } from '../io/SpanWriter.js';
 import { cropTransparentPixels, preserveNonTransparentBlacks, quantizeFrames } from '../utility/ImageProcessor.js';
@@ -7,15 +8,12 @@ import type { Palettized } from '../utility/Palettized.js';
 import type { MpfFrame } from './MpfFrame.js';
 import { mpfFrameHeight, mpfFrameWidth } from './MpfFrame.js';
 
-export const enum MpfHeaderType {
-  Unknown = -1,
-  None = 0,
-}
-
-export const enum MpfFormatType {
-  MultipleAttacks = -1,
-  SingleAttack = 0,
-}
+/** Frame interval used when an MPF advertises no idle animation (StaticNoIdle). */
+const STATIC_NO_IDLE_INTERVAL_MS = 10_000;
+/** Default idle interval when the on-disk byte is zero or an optional animation is present. */
+const DEFAULT_IDLE_INTERVAL_MS = 300;
+/** Floor applied to NormalIdle interval decoding so animations never run too fast. */
+const MIN_NORMAL_IDLE_INTERVAL_MS = 100;
 
 /**
  * A stop-motion animation file (.mpf).
@@ -38,7 +36,20 @@ export class MpfFile {
   standingFrameIndex: number = 0;
   standingFrameCount: number = 0;
   optionalAnimationFrameCount: number = 0;
-  optionalAnimationRatio: number = 0;
+
+  /**
+   * Milliseconds between frames of the idle animation.
+   * - `StaticNoIdle`: {@link STATIC_NO_IDLE_INTERVAL_MS} (10 s).
+   * - `NormalIdle`: decoded from the raw byte (`raw * 100`, floored to 100 ms, default 300 ms when raw is 0).
+   * - `NormalPlusOptional`: always {@link DEFAULT_IDLE_INTERVAL_MS} (300 ms).
+   */
+  animationIntervalMs: number = 0;
+
+  /**
+   * Probability (0-255) that the optional animation plays during an idle cycle.
+   * Only meaningful when {@link detectIdleType} returns {@link MpfIdleType.NormalPlusOptional}.
+   */
+  optionalAnimationProbability: number = 0;
 
   attackFrameIndex: number = 0;
   attackFrameCount: number = 0;
@@ -86,7 +97,7 @@ export class MpfFile {
       mpf.standingFrameIndex = reader.readUInt8();
       mpf.standingFrameCount = reader.readUInt8();
       mpf.optionalAnimationFrameCount = reader.readUInt8();
-      mpf.optionalAnimationRatio = reader.readUInt8();
+      mpf.applyRawOptionalAnimationRatio(reader.readUInt8());
       mpf.attackFrameIndex = reader.readUInt8();
       mpf.attackFrameCount = reader.readUInt8();
       mpf.attack2StartIndex = reader.readUInt8();
@@ -101,7 +112,7 @@ export class MpfFile {
       mpf.standingFrameIndex = reader.readUInt8();
       mpf.standingFrameCount = reader.readUInt8();
       mpf.optionalAnimationFrameCount = reader.readUInt8();
-      mpf.optionalAnimationRatio = reader.readUInt8();
+      mpf.applyRawOptionalAnimationRatio(reader.readUInt8());
     }
 
     // Data segment starts at (totalLength - dataLength)
@@ -142,6 +153,63 @@ export class MpfFile {
   }
 
   // ---------------------------------------------------------------------------
+  // Idle-type classification
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Classify an MPF's idle animation behavior from its frame counts.
+   * - No optional animation frames → {@link MpfIdleType.StaticNoIdle}.
+   * - Standing count is zero or equal to optional count → {@link MpfIdleType.NormalIdle}.
+   * - Otherwise → {@link MpfIdleType.NormalPlusOptional}.
+   */
+  static detectIdleType(standingFrameCount: number, optionalAnimationFrameCount: number): MpfIdleType {
+    if (optionalAnimationFrameCount === 0) return MpfIdleType.StaticNoIdle;
+    if (standingFrameCount === 0 || standingFrameCount === optionalAnimationFrameCount) {
+      return MpfIdleType.NormalIdle;
+    }
+    return MpfIdleType.NormalPlusOptional;
+  }
+
+  /** Convenience: classify this file's idle type from its frame-count fields. */
+  get idleType(): MpfIdleType {
+    return MpfFile.detectIdleType(this.standingFrameCount, this.optionalAnimationFrameCount);
+  }
+
+  /**
+   * Decode the raw on-disk "ratio" byte into {@link animationIntervalMs} and
+   * {@link optionalAnimationProbability} based on the detected idle type.
+   */
+  private applyRawOptionalAnimationRatio(rawRatio: number): void {
+    switch (this.idleType) {
+      case MpfIdleType.StaticNoIdle:
+        this.animationIntervalMs = STATIC_NO_IDLE_INTERVAL_MS;
+        break;
+      case MpfIdleType.NormalIdle:
+        this.animationIntervalMs = rawRatio > 0
+          ? Math.max(MIN_NORMAL_IDLE_INTERVAL_MS, rawRatio * 100)
+          : DEFAULT_IDLE_INTERVAL_MS;
+        break;
+      case MpfIdleType.NormalPlusOptional:
+        this.animationIntervalMs = DEFAULT_IDLE_INTERVAL_MS;
+        this.optionalAnimationProbability = rawRatio;
+        break;
+    }
+  }
+
+  /** Encode this file's semantic animation fields back into a single on-disk byte. */
+  private getRawOptionalAnimationRatio(): number {
+    switch (this.idleType) {
+      case MpfIdleType.NormalIdle:
+        return Math.max(0, Math.min(255, Math.floor(this.animationIntervalMs / 100)));
+      case MpfIdleType.NormalPlusOptional:
+        return Math.max(0, Math.min(255, this.optionalAnimationProbability));
+      case MpfIdleType.StaticNoIdle:
+      default:
+        return 0;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // Serialization
   // ---------------------------------------------------------------------------
 
@@ -168,7 +236,7 @@ export class MpfFile {
       writer.writeUInt8(this.standingFrameIndex);
       writer.writeUInt8(this.standingFrameCount);
       writer.writeUInt8(this.optionalAnimationFrameCount);
-      writer.writeUInt8(this.optionalAnimationRatio);
+      writer.writeUInt8(this.getRawOptionalAnimationRatio());
       writer.writeUInt8(this.attackFrameIndex);
       writer.writeUInt8(this.attackFrameCount);
       writer.writeUInt8(this.attack2StartIndex);
@@ -181,7 +249,7 @@ export class MpfFile {
       writer.writeUInt8(this.standingFrameIndex);
       writer.writeUInt8(this.standingFrameCount);
       writer.writeUInt8(this.optionalAnimationFrameCount);
-      writer.writeUInt8(this.optionalAnimationRatio);
+      writer.writeUInt8(this.getRawOptionalAnimationRatio());
     }
 
     let startAddress = 0;

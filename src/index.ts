@@ -23,11 +23,13 @@ export {
 
 // Enums
 export {
+  AlphaMode,
   EfaBlendingType,
   Endianness,
   KhanPalOverrideType,
   MpfFormatType,
   MpfHeaderType,
+  MpfIdleType,
   SpfFormatType,
 } from './enums.js';
 

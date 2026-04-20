@@ -15,6 +15,21 @@ export const enum SpfFormatType {
 }
 
 /**
+ * Sentinel center-point value matching upstream's `FromImages()` initialization (0xCCCC as int16 → -13108).
+ * Used by factory methods to signal "no center point" in a way that survives write → read cycles.
+ */
+const CENTER_POINT_SENTINEL = -13108;
+
+/**
+ * Compose the on-disk flag word from {@link SpfFrame.flags} and {@link SpfFrame.hasCenterPoint}.
+ * Bit 0 tracks `hasCenterPoint`; other bits are preserved from `flags` verbatim.
+ */
+function encodeFlags(frame: SpfFrame): number {
+  const base = frame.flags >>> 0;
+  return (frame.hasCenterPoint ? (base | 1) : (base & ~1)) >>> 0;
+}
+
+/**
  * A multi-frame sprite file (.spf).
  * Supports two modes:
  * - **Palettized**: 1 byte per pixel (palette index), two 256-color palettes (RGB565 + RGB555).
@@ -27,9 +42,6 @@ export class SpfFile {
   secondaryColors?: Palette;
   unknown1: number = 0;
   unknown2: number = 0;
-
-  /** Unknown value found in the per-frame header; constant across files. */
-  static readonly FRAME_UNKNOWN1 = 0;
 
   constructor(format: SpfFormatType = SpfFormatType.Colorized) {
     this.format = format;
@@ -79,14 +91,16 @@ export class SpfFile {
         top: reader.readUInt16LE(),
         right: reader.readUInt16LE(),
         bottom: reader.readUInt16LE(),
-        unknown2: 0,
+        centerX: reader.readInt16LE(),
+        centerY: reader.readInt16LE(),
+        flags: reader.readUInt32LE(),
+        hasCenterPoint: false,
         startAddress: 0,
         byteWidth: 0,
         byteCount: 0,
         imageByteCount: 0,
       };
-      reader.skip(4); // unknown1 (constant)
-      frame.unknown2 = reader.readUInt32LE();
+      frame.hasCenterPoint = (frame.flags & 1) !== 0;
       frame.startAddress = reader.readUInt32LE();
       frame.byteWidth = reader.readUInt32LE();
       frame.byteCount = reader.readUInt32LE();
@@ -116,14 +130,16 @@ export class SpfFile {
         top: reader.readUInt16LE(),
         right: reader.readUInt16LE(),
         bottom: reader.readUInt16LE(),
-        unknown2: 0,
+        centerX: reader.readInt16LE(),
+        centerY: reader.readInt16LE(),
+        flags: reader.readUInt32LE(),
+        hasCenterPoint: false,
         startAddress: 0,
         byteWidth: 0,
         byteCount: 0,
         imageByteCount: 0,
       };
-      reader.skip(4); // unknown1
-      frame.unknown2 = reader.readUInt32LE();
+      frame.hasCenterPoint = (frame.flags & 1) !== 0;
       frame.startAddress = reader.readUInt32LE();
       frame.byteWidth = reader.readUInt32LE();
       frame.byteCount = reader.readUInt32LE();
@@ -187,8 +203,9 @@ export class SpfFile {
       writer.writeUInt16LE(frame.top);
       writer.writeUInt16LE(frame.right);
       writer.writeUInt16LE(frame.bottom);
-      writer.writeUInt32LE(SpfFile.FRAME_UNKNOWN1);
-      writer.writeUInt32LE(frame.unknown2);
+      writer.writeInt16LE(frame.centerX);
+      writer.writeInt16LE(frame.centerY);
+      writer.writeUInt32LE(encodeFlags(frame));
       writer.writeUInt32LE(frame.startAddress);
       writer.writeUInt32LE(frame.byteWidth);
       writer.writeUInt32LE(frame.byteCount);
@@ -212,8 +229,9 @@ export class SpfFile {
       writer.writeUInt16LE(frame.top);
       writer.writeUInt16LE(frame.right);
       writer.writeUInt16LE(frame.bottom);
-      writer.writeUInt32LE(SpfFile.FRAME_UNKNOWN1);
-      writer.writeUInt32LE(frame.unknown2);
+      writer.writeInt16LE(frame.centerX);
+      writer.writeInt16LE(frame.centerY);
+      writer.writeUInt32LE(encodeFlags(frame));
       writer.writeUInt32LE(frame.startAddress);
       writer.writeUInt32LE(frame.byteWidth);
       writer.writeUInt32LE(frame.byteCount);
@@ -289,11 +307,14 @@ export class SpfFile {
         top: 0,
         right: w,
         bottom: h,
+        centerX: CENTER_POINT_SENTINEL,
+        centerY: CENTER_POINT_SENTINEL,
+        flags: 0,
+        hasCenterPoint: false,
         startAddress: 0,
         byteWidth: w * 2,
         byteCount: w * h * 4, // RGB565 copy + RGB555 copy
         imageByteCount: w * h,
-        unknown2: 0,
         colorData,
       };
       spf.frames.push(frame);
@@ -320,11 +341,14 @@ export class SpfFile {
         top: 0,
         right: w,
         bottom: h,
+        centerX: CENTER_POINT_SENTINEL,
+        centerY: CENTER_POINT_SENTINEL,
+        flags: 0,
+        hasCenterPoint: false,
         startAddress: 0,
         byteWidth: w,
         byteCount: w * h,
         imageByteCount: w * h,
-        unknown2: 0,
         data: indexed,
       };
       spf.frames.push(frame);

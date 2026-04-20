@@ -5,8 +5,20 @@ import { encodeRgb565, encodeRgb555 } from '../src/utility/ColorCodec.js';
 import { SpanWriter } from '../src/io/SpanWriter.js';
 import { COLORS_PER_PALETTE } from '../src/constants.js';
 
+interface PalettizedFrameHeaderOpts {
+  centerX?: number;
+  centerY?: number;
+  flags?: number;
+}
+
 /** Build a minimal palettized SPF buffer with one frame. */
-function buildPalettizedSpf(width: number, height: number, pixels: Uint8Array): Uint8Array {
+function buildPalettizedSpf(
+  width: number,
+  height: number,
+  pixels: Uint8Array,
+  opts: PalettizedFrameHeaderOpts = {},
+): Uint8Array {
+  const { centerX = 0, centerY = 0, flags = 0 } = opts;
   const writer = new SpanWriter();
 
   writer.writeUInt32LE(0); // unknown1
@@ -20,22 +32,20 @@ function buildPalettizedSpf(width: number, height: number, pixels: Uint8Array): 
 
   writer.writeUInt32LE(1); // frameCount
 
-  // Frame header
-  writer.writeUInt16LE(0);       // left
-  writer.writeUInt16LE(0);       // top
-  writer.writeUInt16LE(width);   // right
-  writer.writeUInt16LE(height);  // bottom
-  writer.writeUInt32LE(0);       // unknown1
-  writer.writeUInt32LE(0);       // unknown2
+  // Frame header: left, top, right, bottom, centerX(i16), centerY(i16), flags(u32), startAddress, byteWidth, byteCount, imageByteCount
+  writer.writeUInt16LE(0);
+  writer.writeUInt16LE(0);
+  writer.writeUInt16LE(width);
+  writer.writeUInt16LE(height);
+  writer.writeInt16LE(centerX);
+  writer.writeInt16LE(centerY);
+  writer.writeUInt32LE(flags);
   writer.writeUInt32LE(0);       // startAddress
   writer.writeUInt32LE(width);   // byteWidth
   writer.writeUInt32LE(width * height); // byteCount
   writer.writeUInt32LE(width * height); // imageByteCount
 
-  // Total byte count
-  writer.writeUInt32LE(width * height);
-
-  // Pixel data
+  writer.writeUInt32LE(width * height); // total byte count
   writer.writeBytes(pixels);
 
   return writer.toUint8Array();
@@ -58,8 +68,9 @@ function buildColorizedSpf(width: number, height: number): Uint8Array {
   writer.writeUInt16LE(0);         // top
   writer.writeUInt16LE(width);     // right
   writer.writeUInt16LE(height);    // bottom
-  writer.writeUInt32LE(0);         // unknown1
-  writer.writeUInt32LE(0);         // unknown2
+  writer.writeInt16LE(0);          // centerX
+  writer.writeInt16LE(0);          // centerY
+  writer.writeUInt32LE(0);         // flags
   writer.writeUInt32LE(0);         // startAddress
   writer.writeUInt32LE(width * 2); // byteWidth
   writer.writeUInt32LE(byteCount); // byteCount
@@ -109,6 +120,64 @@ describe('SpfFile', () => {
       expect(reparsed.format).toBe(SpfFormatType.Palettized);
       expect(reparsed.frames.length).toBe(1);
       expect(Array.from(reparsed.frames[0]!.data!)).toEqual(Array.from(pixels));
+    });
+
+    describe('center point', () => {
+      it('defaults to hasCenterPoint=false when flags bit 0 is clear', () => {
+        const pixels = new Uint8Array(4 * 4);
+        const buf = buildPalettizedSpf(4, 4, pixels, { centerX: 12, centerY: -7, flags: 0 });
+        const frame = SpfFile.fromBuffer(buf).frames[0]!;
+
+        expect(frame.centerX).toBe(12);
+        expect(frame.centerY).toBe(-7);
+        expect(frame.flags).toBe(0);
+        expect(frame.hasCenterPoint).toBe(false);
+      });
+
+      it('derives hasCenterPoint from flags bit 0', () => {
+        const pixels = new Uint8Array(4 * 4);
+        const buf = buildPalettizedSpf(4, 4, pixels, { centerX: 1, centerY: 2, flags: 0b101 });
+        const frame = SpfFile.fromBuffer(buf).frames[0]!;
+
+        expect(frame.hasCenterPoint).toBe(true);
+        expect(frame.flags).toBe(0b101);
+      });
+
+      it('preserves non-hasCenterPoint flag bits across round-trip', () => {
+        const pixels = new Uint8Array(4 * 4);
+        const buf = buildPalettizedSpf(4, 4, pixels, { flags: 0b10100 });
+        const reparsed = SpfFile.fromBuffer(SpfFile.fromBuffer(buf).toUint8Array());
+        const frame = reparsed.frames[0]!;
+
+        expect(frame.flags).toBe(0b10100);
+        expect(frame.hasCenterPoint).toBe(false);
+      });
+
+      it('round-trips centerX/centerY with hasCenterPoint=true', () => {
+        const pixels = new Uint8Array(4 * 4);
+        const buf = buildPalettizedSpf(4, 4, pixels, { centerX: -1000, centerY: 2000, flags: 1 });
+        const original = SpfFile.fromBuffer(buf);
+
+        const reparsed = SpfFile.fromBuffer(original.toUint8Array());
+        const frame = reparsed.frames[0]!;
+
+        expect(frame.centerX).toBe(-1000);
+        expect(frame.centerY).toBe(2000);
+        expect(frame.hasCenterPoint).toBe(true);
+      });
+
+      it('toggling hasCenterPoint rewrites flags bit 0', () => {
+        const pixels = new Uint8Array(4 * 4);
+        const buf = buildPalettizedSpf(4, 4, pixels, { flags: 0b1110 });
+        const spf = SpfFile.fromBuffer(buf);
+        const frame = spf.frames[0]!;
+        expect(frame.hasCenterPoint).toBe(false);
+
+        frame.hasCenterPoint = true;
+        const reparsed = SpfFile.fromBuffer(spf.toUint8Array());
+        expect(reparsed.frames[0]!.flags & 1).toBe(1);
+        expect(reparsed.frames[0]!.flags >>> 1).toBe(0b111);
+      });
     });
   });
 
