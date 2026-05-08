@@ -58,6 +58,11 @@ export {
 
 // Data / Archive
 export { DataArchive } from './data/DataArchive.js';
+export type {
+  DataArchiveOptions,
+  DataArchiveWarning,
+  DataArchiveWarningKind,
+} from './data/DataArchive.js';
 export { DataArchiveEntry } from './data/DataArchiveEntry.js';
 export { MapFile } from './data/MapFile.js';
 export type { MapTile } from './data/MapFile.js';
@@ -76,6 +81,7 @@ export { PaletteTable } from './drawing/PaletteTable.js';
 export { PaletteLookup } from './drawing/PaletteLookup.js';
 
 // Drawing — Image formats
+export { BikFile } from './drawing/BikFile.js';
 export { HpfFile } from './drawing/HpfFile.js';
 export { EfaFile } from './drawing/EfaFile.js';
 export type { EfaFrame } from './drawing/EfaFrame.js';
@@ -84,9 +90,11 @@ export type { EpfFrame } from './drawing/EpfFrame.js';
 export { epfFrameHeight, epfFrameWidth } from './drawing/EpfFrame.js';
 export { FntFile } from './drawing/FntFile.js';
 export { HeaFile } from './drawing/HeaFile.js';
+export { JpfFile } from './drawing/JpfFile.js';
 export { MpfFile } from './drawing/MpfFile.js';
 export type { MpfFrame } from './drawing/MpfFrame.js';
 export { mpfFrameHeight, mpfFrameWidth } from './drawing/MpfFrame.js';
+export { PcxFile } from './drawing/PcxFile.js';
 export { SpfFile } from './drawing/SpfFile.js';
 export type { SpfFrame } from './drawing/SpfFrame.js';
 export { spfFrameHeight, spfFrameWidth } from './drawing/SpfFrame.js';
@@ -137,6 +145,7 @@ export {
   renderHpf,
   renderMpf,
   renderPalettized,
+  renderPcx,
   renderSpfColorized,
   renderSpfPalettized,
   renderText,

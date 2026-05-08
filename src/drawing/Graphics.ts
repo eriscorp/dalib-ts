@@ -11,6 +11,7 @@ import type { HpfFile } from './HpfFile.js';
 import type { MpfFrame } from './MpfFrame.js';
 import { mpfFrameHeight, mpfFrameWidth } from './MpfFrame.js';
 import type { Palette } from './Palette.js';
+import type { PcxFile } from './PcxFile.js';
 import type { SpfFrame } from './SpfFrame.js';
 import { spfFrameHeight, spfFrameWidth } from './SpfFrame.js';
 import type { Tile } from './Tile.js';
@@ -330,6 +331,33 @@ function decodeRleAlphaSurface(alphaData: Uint8Array, width: number, height: num
   }
 
   return result;
+}
+
+// ---------------------------------------------------------------------------
+// PCX rendering
+// ---------------------------------------------------------------------------
+
+/**
+ * Render a {@link PcxFile} to an RgbaFrame using the file's embedded palette.
+ * PCX has no transparent-index semantic — every pixel is opaque (alpha 255).
+ * The `alphaMode` parameter is accepted for API consistency but has no effect
+ * on output for fully-opaque pixels.
+ */
+export function renderPcx(
+  pcx: PcxFile,
+  alphaMode: AlphaMode = AlphaMode.Straight,
+): RgbaFrame {
+  const { width, height, data, palette } = pcx;
+  const pixels = new Uint8ClampedArray(width * height * 4);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const idx = data[y * width + x]!;
+      const pi = idx * 3;
+      const dst = (y * width + x) * 4;
+      writePixel(pixels, dst, palette[pi]!, palette[pi + 1]!, palette[pi + 2]!, 255, alphaMode);
+    }
+  }
+  return { width, height, data: pixels };
 }
 
 // ---------------------------------------------------------------------------

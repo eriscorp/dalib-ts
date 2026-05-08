@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { DataArchive } from '../src/data/DataArchive.js';
+import type { DataArchiveWarning } from '../src/data/DataArchive.js';
 import { SpanWriter } from '../src/io/SpanWriter.js';
 import { DATA_ARCHIVE_ENTRY_NAME_LENGTH } from '../src/constants.js';
 
@@ -117,6 +118,54 @@ describe('DataArchive', () => {
     const archive = DataArchive.fromBuffer(dat);
     const entry = archive.get('nonum.pal')!;
     expect(entry.tryGetNumericIdentifier()).toBeNull();
+  });
+
+  it('preserves duplicate entry names without throwing; first wins in lookup map', () => {
+    const dat = buildDatBuffer([
+      { name: 'dupe.spf', data: new Uint8Array([0xaa]) },
+      { name: 'unique.spf', data: new Uint8Array([0xbb]) },
+      { name: 'dupe.spf', data: new Uint8Array([0xcc]) },
+    ]);
+
+    const onWarning = vi.fn<(warning: DataArchiveWarning) => void>();
+    const archive = DataArchive.fromBuffer(dat, { onWarning });
+
+    expect(archive.size).toBe(3);
+    expect(archive.entries.map(e => e.entryName)).toEqual(['dupe.spf', 'unique.spf', 'dupe.spf']);
+    expect(Array.from(archive.get('dupe.spf')!.toUint8Array())).toEqual([0xaa]);
+    expect(onWarning).toHaveBeenCalledTimes(1);
+    expect(onWarning).toHaveBeenCalledWith({
+      kind: 'duplicate-entry-name',
+      entryName: 'dupe.spf',
+      index: 2,
+    });
+  });
+
+  it('parses archives containing an empty entry name without throwing', () => {
+    const dat = buildDatBuffer([
+      { name: '', data: new Uint8Array([0x99]) },
+      { name: 'real.spf', data: new Uint8Array([0x77]) },
+    ]);
+
+    const onWarning = vi.fn<(warning: DataArchiveWarning) => void>();
+    const archive = DataArchive.fromBuffer(dat, { onWarning });
+
+    expect(archive.size).toBe(2);
+    expect(archive.has('real.spf')).toBe(true);
+    expect(onWarning).toHaveBeenCalledWith({
+      kind: 'empty-entry-name',
+      entryName: '',
+      index: 0,
+    });
+  });
+
+  it('still accepts the legacy positional newFormat boolean', () => {
+    const dat = buildDatBuffer([
+      { name: 'plain.spf', data: new Uint8Array([0x01]) },
+    ]);
+    const archive = DataArchive.fromBuffer(dat, false);
+    expect(archive.size).toBe(1);
+    expect(archive.has('plain.spf')).toBe(true);
   });
 
   it('sort orders entries by prefix then numeric ID', () => {

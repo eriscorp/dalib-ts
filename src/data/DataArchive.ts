@@ -6,12 +6,34 @@ import { DataArchiveEntry } from './DataArchiveEntry.js';
 const HEADER_LENGTH = 4;
 const ENTRY_HEADER_LENGTH = HEADER_LENGTH + DATA_ARCHIVE_ENTRY_NAME_LENGTH; // 4 + 13 = 17
 
+export type DataArchiveWarningKind = 'duplicate-entry-name' | 'empty-entry-name';
+
+export interface DataArchiveWarning {
+  kind: DataArchiveWarningKind;
+  entryName: string;
+  /** Index in the archive's entry table where the warning was triggered. */
+  index: number;
+}
+
+export interface DataArchiveOptions {
+  /** Set true for the alternate "new format" entry layout (12-byte name + 20 unknown bytes). */
+  newFormat?: boolean;
+  /** Optional diagnostic callback invoked when a malformed/duplicate entry is encountered. */
+  onWarning?: (warning: DataArchiveWarning) => void;
+}
+
 /**
  * A Dark Ages data archive (.dat file).
  *
  * Entries are stored in a case-insensitive map keyed by entryName.
  * The underlying buffer is held in memory — there is no memory-mapped
  * equivalent in the JS port (use fromFile for Node.js, fromBuffer for browsers).
+ *
+ * Duplicate or empty entry names are tolerated to match the official client's
+ * behavior (real archives such as `album.dat` and `WorldMap.dat` contain them).
+ * Duplicates are preserved in `entries` for iteration; the lookup map keeps
+ * the first occurrence so `archive.get(name)` is deterministic. Pass
+ * `onWarning` in {@link DataArchiveOptions} to surface diagnostics.
  */
 export class DataArchive {
   /** Ordered list of all entries in the archive. */
@@ -23,8 +45,9 @@ export class DataArchive {
   /** The raw archive data. The entries' `address` fields index into this. */
   private buffer: Uint8Array;
 
-  private constructor(buffer: Uint8Array, newFormat = false) {
+  private constructor(buffer: Uint8Array, options: DataArchiveOptions = {}) {
     this.buffer = buffer;
+    const { newFormat = false, onWarning } = options;
     const reader = new SpanReader(buffer);
 
     const expectedCount = reader.readInt32LE() - 1;
@@ -41,12 +64,11 @@ export class DataArchive {
 
       const fileSize = endAddress - startAddress;
 
-      try {
-        this.addEntry(new DataArchiveEntry(this, name, startAddress, fileSize));
-      } catch (err) {
-        if (!newFormat) throw err;
-        // newFormat archives may have duplicate/invalid entries — skip them
+      if (name.length === 0) {
+        onWarning?.({ kind: 'empty-entry-name', entryName: name, index: i });
       }
+
+      this.addEntry(new DataArchiveEntry(this, name, startAddress, fileSize), i, onWarning);
     }
   }
 
@@ -222,12 +244,17 @@ export class DataArchive {
   // Private helpers
   // ---------------------------------------------------------------------------
 
-  private addEntry(entry: DataArchiveEntry): void {
+  private addEntry(
+    entry: DataArchiveEntry,
+    index: number,
+    onWarning?: (warning: DataArchiveWarning) => void,
+  ): void {
     const key = entry.entryName.toLowerCase();
-    if (this.entryMap.has(key)) {
-      throw new Error(`Duplicate entry name: ${entry.entryName}`);
-    }
     this.entries.push(entry);
+    if (this.entryMap.has(key)) {
+      onWarning?.({ kind: 'duplicate-entry-name', entryName: entry.entryName, index });
+      return;
+    }
     this.entryMap.set(key, entry);
   }
 
@@ -238,22 +265,35 @@ export class DataArchive {
   /**
    * Parse a DataArchive from an ArrayBuffer or Uint8Array.
    * Works in both Node.js and browsers.
+   *
+   * Pass either {@link DataArchiveOptions} or, for backwards compatibility,
+   * a boolean equivalent to `{ newFormat: <bool> }`.
    */
-  static fromBuffer(buffer: ArrayBuffer | Uint8Array, newFormat = false): DataArchive {
+  static fromBuffer(
+    buffer: ArrayBuffer | Uint8Array,
+    optionsOrNewFormat: DataArchiveOptions | boolean = {},
+  ): DataArchive {
+    const options = resolveOptions(optionsOrNewFormat);
     const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
-    return new DataArchive(bytes, newFormat);
+    return new DataArchive(bytes, options);
   }
 
   /**
    * Load a DataArchive from a file path.
    * **Node.js only** — will throw in a browser environment.
    */
-  static fromFile(path: string, newFormat = false): DataArchive {
+  static fromFile(
+    path: string,
+    optionsOrNewFormat: DataArchiveOptions | boolean = {},
+  ): DataArchive {
     // Dynamic import to avoid bundling fs in browser builds
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const fs = require('node:fs') as typeof import('fs');
     const buf = fs.readFileSync(path);
-    return DataArchive.fromBuffer(new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength), newFormat);
+    return DataArchive.fromBuffer(
+      new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength),
+      optionsOrNewFormat,
+    );
   }
 
   /**
@@ -300,6 +340,10 @@ export class DataArchive {
 
     return writer.toUint8Array();
   }
+}
+
+function resolveOptions(input: DataArchiveOptions | boolean): DataArchiveOptions {
+  return typeof input === 'boolean' ? { newFormat: input } : input;
 }
 
 /** String comparison that sorts underscore-prefixed strings before others. */

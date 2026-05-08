@@ -36,11 +36,32 @@ export class FntFile {
 
   /**
    * Returns the raw 1bpp bytes for glyph at `index`.
-   * Bits within each byte are in LSB-first order (bit 0 = leftmost pixel).
+   * Bits within each byte are in MSB-first order (bit 7 = leftmost pixel).
+   *
+   * Most consumers should prefer {@link getGlyphPixels} which returns
+   * an already-decoded one-byte-per-pixel buffer.
    */
   getGlyphData(index: number): Uint8Array {
     if (!this.isValidIndex(index)) throw new RangeError(`Glyph index ${index} out of range`);
     return this.data.subarray(index * this.bytesPerGlyph, (index + 1) * this.bytesPerGlyph);
+  }
+
+  /**
+   * Returns the decoded glyph at `index` as a flat one-byte-per-pixel buffer
+   * of length `glyphWidth * glyphHeight`. Each byte is 0 (off) or 1 (on),
+   * indexed `[y * glyphWidth + x]`.
+   */
+  getGlyphPixels(index: number): Uint8Array {
+    const raw = this.getGlyphData(index);
+    const out = new Uint8Array(this.glyphWidth * this.glyphHeight);
+    for (let y = 0; y < this.glyphHeight; y++) {
+      const rowStart = y * this.bytesPerRow;
+      for (let x = 0; x < this.glyphWidth; x++) {
+        const byte = raw[rowStart + (x >> 3)]!;
+        out[y * this.glyphWidth + x] = (byte >> (7 - (x & 7))) & 1;
+      }
+    }
+    return out;
   }
 
   // ---------------------------------------------------------------------------
