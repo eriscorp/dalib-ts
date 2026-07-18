@@ -11,6 +11,15 @@ import { type ColorTableEntry, emptyColorTableEntry } from './ColorTableEntry.js
  *     Line: colorIndex (byte)
  *     colorsPerEntry lines: "r,g,b" or empty (→ transparent)
  */
+/**
+ * Upper bound on the per-entry color count declared by a `.tbl` header.
+ * Real Dark Ages dye tables use ~6 colors per entry; 64 is generous. A larger
+ * value means the file is not a dye table (or is corrupt) — reject it rather than
+ * allocating against an attacker-controlled count. Mirrors the EOF guard below;
+ * together they prevent the unbounded allocation that OOM'd consumers.
+ */
+const MAX_COLORS_PER_ENTRY = 64;
+
 export class ColorTable {
   /** Entries keyed by colorIndex. */
   private readonly map = new Map<number, ColorTableEntry>();
@@ -52,7 +61,8 @@ export class ColorTable {
     const firstLine = nextLine();
     if (firstLine === undefined) return table;
     const colorsPerEntry = parseInt(firstLine, 10);
-    if (isNaN(colorsPerEntry) || colorsPerEntry <= 0) return table;
+    if (isNaN(colorsPerEntry) || colorsPerEntry <= 0 || colorsPerEntry > MAX_COLORS_PER_ENTRY)
+      return table;
 
     while (lineIndex < lines.length) {
       const indexLine = nextLine();
@@ -64,10 +74,10 @@ export class ColorTable {
 
       for (let i = 0; i < colorsPerEntry; i++) {
         const colorLine = nextLine();
-        if (!colorLine) {
-          colors.push({ r: 0, g: 0, b: 0, a: 0 });
-          continue;
-        }
+        // EOF: stop this entry instead of padding it out to colorsPerEntry.
+        // (An empty-but-present line is a legitimate transparent color, handled
+        // below via the parts.length check — only true EOF breaks.)
+        if (colorLine === undefined) break;
         const parts = colorLine.split(',');
         if (parts.length !== 3) {
           colors.push({ r: 0, g: 0, b: 0, a: 0 });

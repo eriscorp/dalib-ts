@@ -36,15 +36,23 @@ const TABLE = new Uint32Array([
 
 /**
  * Calculate the CRC-32 checksum of a byte buffer.
- * @param buffer - The data to checksum.
- * @param offset - Byte offset to start from (default 0).
- * @param count  - Number of bytes to process (default: full buffer).
+ * @param buffer   - The data to checksum.
+ * @param offset   - Byte offset to start from (default 0).
+ * @param count    - Number of bytes to process (default: full buffer).
+ * @param finalXor - Apply the standard final inversion (zlib/PNG CRC-32), default
+ *                   `true`. The Dark Ages wire protocol omits it — pass `false` for
+ *                   metafile/notice/server-table checksums. (Matches C# DALib `39b845e`.)
  * @returns Unsigned 32-bit CRC value.
  */
-export function crc32(buffer: Uint8Array, offset = 0, count = buffer.length - offset): number {
+export function crc32(
+  buffer: Uint8Array,
+  offset = 0,
+  count = buffer.length - offset,
+  finalXor = true,
+): number {
   let result = 0xffffffff;
   for (let i = 0; i < count; i++) {
     result = (TABLE[(buffer[offset + i]! ^ result) & 0xff]! ^ (result >>> 8)) >>> 0;
   }
-  return (~result) >>> 0;
+  return (finalXor ? ~result : result) >>> 0;
 }

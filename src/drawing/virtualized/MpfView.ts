@@ -106,8 +106,14 @@ export class MpfView {
 
     const headerType = reader.readInt32LE() as MpfHeaderType;
     if (headerType === MpfHeaderType.Unknown) {
-      const num = reader.readInt32LE();
-      if (num === 4) reader.skip(8);
+      // Variable-length unknown header: if flags bit 2 is set, a u32 count
+      // follows, then count*4 bytes. Advance past the whole run. (Ported from C#
+      // DALib 20aebba; the old `num === 4` + skip(8) handled only count === 1.)
+      const flags = reader.readInt32LE();
+      if ((flags & 4) !== 0) {
+        const count = reader.readInt32LE();
+        reader.skip(count * 4);
+      }
     } else {
       reader.seek(reader.position - 4);
     }
