@@ -66,13 +66,23 @@ export class MpfFile {
     mpf.headerType = headerInt as MpfHeaderType;
 
     if (mpf.headerType === MpfHeaderType.Unknown) {
+      // Read the 4-byte flags field.
       const headerBytes = reader.readBytes(4);
-      const num = new DataView(headerBytes.buffer, headerBytes.byteOffset, 4).getInt32(0, true);
-      if (num === 4) {
-        const more = reader.readBytes(8);
-        const combined = new Uint8Array(12);
-        combined.set(headerBytes);
-        combined.set(more, 4);
+      const flags = new DataView(headerBytes.buffer, headerBytes.byteOffset, 4).getInt32(0, true);
+
+      // If bit 2 is set, a u32 count follows, then count*4 bytes of (mostly
+      // unknown) data — a variable-length run. The client keeps only the first
+      // min(count, 4) words but consumes the whole run; we store all of it
+      // verbatim so toUint8Array round-trips it. (Ported from C# DALib 20aebba;
+      // the old `num === 4` + fixed-8-byte read was correct only for count === 1.)
+      if ((flags & 4) !== 0) {
+        const countBytes = reader.readBytes(4);
+        const count = new DataView(countBytes.buffer, countBytes.byteOffset, 4).getInt32(0, true);
+        const moreBytes = reader.readBytes(count * 4);
+        const combined = new Uint8Array(8 + count * 4);
+        combined.set(headerBytes, 0);
+        combined.set(countBytes, 4);
+        combined.set(moreBytes, 8);
         mpf.unknownHeaderBytes = combined;
       } else {
         mpf.unknownHeaderBytes = new Uint8Array(headerBytes);

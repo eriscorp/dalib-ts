@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { MpfFile } from '../src/drawing/MpfFile.js';
-import { MpfFormatType, MpfIdleType } from '../src/enums.js';
+import { MpfFormatType, MpfHeaderType, MpfIdleType } from '../src/enums.js';
 import { SpanWriter } from '../src/io/SpanWriter.js';
 
 interface FrameSpec {
@@ -201,6 +201,57 @@ describe('MpfFile', () => {
       expect(mpf.paletteNumber).toBe(1234);
       expect(mpf.frames.length).toBe(1);
       expect(mpf.frames[0]).toMatchObject({ left: 1, top: 2, right: 5, bottom: 6, centerX: 3, centerY: 4 });
+    });
+  });
+
+  // Ported from C# DALib MpfHeaderTests (issue #10 / commit 20aebba). The Unknown
+  // (0xFFFFFFFF magic) header carries a variable-length run: when bit 2 of the flags
+  // field is set, a u32 count follows, then count*4 bytes. The old parser did a
+  // `flags === 4` compare + fixed 8-byte read, correct only for flags==4, count==1.
+  describe('Unknown variable-length header', () => {
+    // Smallest valid Unknown-header MPF: given flags (+ count/data when bit 2 set),
+    // zero real frames, trailing palette sentinel. A correct parse round-trips exactly.
+    function buildUnknownHeaderMpf(flags: number, count: number): Uint8Array {
+      const w = new SpanWriter();
+      w.writeInt32LE(MpfHeaderType.Unknown); // magic -1
+      w.writeInt32LE(flags);
+      if ((flags & 4) !== 0) {
+        w.writeInt32LE(count);
+        for (let i = 0; i < count * 4; i++) w.writeUInt8((0x10 + i) & 0xff);
+      }
+      w.writeUInt8(1); // frameCount — just the palette sentinel
+      w.writeInt16LE(64); // pixelWidth
+      w.writeInt16LE(48); // pixelHeight
+      w.writeInt32LE(0); // dataLength
+      w.writeUInt8(0); // walkFrameIndex
+      w.writeUInt8(0); // walkFrameCount
+      for (let i = 0; i < 6; i++) w.writeUInt8(0); // SingleAttack format block (all zero)
+      for (let i = 0; i < 12; i++) w.writeUInt8(0xff); // palette sentinel geometry
+      w.writeInt32LE(0); // paletteNumber
+      return w.toUint8Array();
+    }
+
+    it.each([
+      { flags: 0x04, count: 1 }, // legacy-correct case (the only one the old logic got right)
+      { flags: 0x04, count: 3 }, // bit 2 set, count != 1 — old code under-read by 8 bytes
+      { flags: 0x06, count: 2 }, // bit 2 set alongside another bit — old `=== 4` missed it
+      { flags: 0x14, count: 5 }, // higher bits set too
+      { flags: 0x00, count: 0 }, // bit 2 clear — no count/data follows
+      { flags: 0x02, count: 0 }, // other bit set, bit 2 clear — must NOT read a count
+    ])('round-trips flags=$flags count=$count byte-for-byte', ({ flags, count }) => {
+      const original = buildUnknownHeaderMpf(flags, count);
+      const mpf = MpfFile.fromBuffer(original);
+
+      expect(mpf.headerType).toBe(MpfHeaderType.Unknown);
+      expect(mpf.pixelWidth).toBe(64);
+      expect(mpf.pixelHeight).toBe(48);
+      expect(mpf.frames.length).toBe(0);
+
+      const expectedHeaderLen = (flags & 4) !== 0 ? 8 + count * 4 : 4;
+      expect(mpf.unknownHeaderBytes.length).toBe(expectedHeaderLen);
+
+      // Verbatim passthrough → re-serializing reproduces the input exactly.
+      expect(Array.from(mpf.toUint8Array())).toEqual(Array.from(original));
     });
   });
 });
