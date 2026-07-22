@@ -48,9 +48,9 @@ export class MapFile {
     for (let y = 0; y < this.height; y++) {
       for (let x = 0; x < this.width; x++) {
         const t = this.getTile(x, y);
-        writer.writeInt16LE(t.background);
-        writer.writeInt16LE(t.leftForeground);
-        writer.writeInt16LE(t.rightForeground);
+        writer.writeUInt16LE(t.background);
+        writer.writeUInt16LE(t.leftForeground);
+        writer.writeUInt16LE(t.rightForeground);
       }
     }
     return writer.toUint8Array();
@@ -58,12 +58,15 @@ export class MapFile {
 
   /**
    * Parse a MapFile from a buffer.
-   * The buffer must be exactly width × height × 6 bytes.
+   *
+   * Matches the client's `file_read_map_cells`: a buffer shorter than
+   * width × height × 6 is rejected, while trailing bytes beyond that are ignored.
    */
   static fromBuffer(buffer: ArrayBuffer | Uint8Array, width: number, height: number): MapFile {
     const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
-    if (bytes.length !== width * height * 6) {
-      throw new Error(`Invalid map buffer: expected ${width * height * 6} bytes, got ${bytes.length}`);
+    const expected = width * height * 6;
+    if (bytes.length < expected) {
+      throw new Error(`Invalid map buffer: expected at least ${expected} bytes, got ${bytes.length}`);
     }
 
     const map = new MapFile(width, height);
@@ -72,9 +75,9 @@ export class MapFile {
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
         map.setTile(x, y, {
-          background: reader.readInt16LE(),
-          leftForeground: reader.readInt16LE(),
-          rightForeground: reader.readInt16LE(),
+          background: reader.readUInt16LE(),
+          leftForeground: reader.readUInt16LE(),
+          rightForeground: reader.readUInt16LE(),
         });
       }
     }

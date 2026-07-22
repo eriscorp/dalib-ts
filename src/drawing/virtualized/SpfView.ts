@@ -89,12 +89,17 @@ export class SpfView {
 
     reader.skip(4); // unknown1
     reader.skip(4); // unknown2
-    const format = reader.readUInt32LE() as SpfFormatType;
+    // +0x08 pixel mode and +0x09 palette mode are separate bytes, followed by two
+    // unidentified bytes at +0x0A. The embedded palette block is only present when
+    // both mode bytes are zero.
+    const format = reader.readUInt8() as SpfFormatType;
+    const paletteMode = reader.readUInt8();
+    reader.skip(2); // reserved mode bytes
 
     let primaryColors: Palette | undefined;
     let secondaryColors: Palette | undefined;
 
-    if (format === SpfFormatType.Palettized) {
+    if (format === SpfFormatType.Palettized && paletteMode === 0) {
       primaryColors = new Palette();
       secondaryColors = new Palette();
       for (let i = 0; i < 256; i++) primaryColors.colors[i] = decodeRgb565(reader.readUInt16LE());

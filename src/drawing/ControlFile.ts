@@ -63,27 +63,11 @@ export class ControlFile {
       }
 
       if (upper.startsWith('<ENDCONTROL>')) {
-        if (current) {
-          // Expand image ranges: the file gives only start+end frame indexes per image name;
-          // fill in intermediate frames.
-          if (current.images && current.images.length > 0) {
-            const expanded: Array<{ imageName: string; frameIndex: number }> = [];
-            const imgs = current.images;
-            let i = 0;
-            while (i < imgs.length) {
-              const imgName = imgs[i]!.imageName;
-              const start = imgs[i]!.frameIndex;
-              // Find the last entry with the same image name
-              let endIdx = i;
-              while (endIdx + 1 < imgs.length && imgs[endIdx + 1]!.imageName === imgName) endIdx++;
-              const end = imgs[endIdx]!.frameIndex;
-              for (let f = start; f <= end; f++) expanded.push({ imageName: imgName, frameIndex: f });
-              i = endIdx + 1;
-            }
-            current.images = expanded;
-          }
-          file.add(current);
-        }
+        // <IMAGE> is an ordered list of (name, frame) entries — the image-button helper
+        // consumes up to three as normal/hover/pressed. They are not a start/end range:
+        // real layouts contain non-consecutive runs such as `_nemot.spf` 0, 1, 3, so
+        // filling in the gaps would invent frames and shift the button states.
+        if (current) file.add(current);
         current = null;
         currentToken = 'none';
         continue;

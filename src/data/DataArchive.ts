@@ -30,7 +30,9 @@ export interface DataArchiveOptions {
  * equivalent in the JS port (use fromFile for Node.js, fromBuffer for browsers).
  *
  * Duplicate or empty entry names are tolerated to match the official client's
- * behavior (real archives such as `album.dat` and `WorldMap.dat` contain them).
+ * behavior (real archives such as `WorldMap.dat` contain them). Note that not every
+ * `.dat` file is an archive — `sotp.dat` and `album.dat` merely share the extension
+ * and have their own unrelated layouts.
  * Duplicates are preserved in `entries` for iteration; the lookup map keeps
  * the first occurrence so `archive.get(name)` is deterministic. Pass
  * `onWarning` in {@link DataArchiveOptions} to surface diagnostics.
@@ -49,6 +51,14 @@ export class DataArchive {
     this.buffer = buffer;
     const { newFormat = false, onWarning } = options;
     const reader = new SpanReader(buffer);
+
+    // `file_archive_open` recognizes a second, XOR-obfuscated layout with a zlib-compressed
+    // index whenever the first word is 0xFFFFFFFF. No sample of it is known to exist, so
+    // reject it explicitly rather than reading its header as a (huge) entry count.
+    if (buffer.length >= 4 && reader.readUInt32LE() === 0xffffffff) {
+      throw new Error('Extended DAT archive format (0xFFFFFFFF header) is not supported');
+    }
+    reader.seek(0);
 
     const expectedCount = reader.readInt32LE() - 1;
 

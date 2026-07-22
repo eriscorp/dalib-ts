@@ -1,5 +1,5 @@
 import type { Color, RgbaFrame } from '../constants.js';
-import { TILE_WIDTH, TILE_HEIGHT, TRANSPARENT } from '../constants.js';
+import { HALF_TILE_HEIGHT, TILE_WIDTH, TILE_HEIGHT, TRANSPARENT } from '../constants.js';
 import { AlphaMode, EfaBlendingType } from '../enums.js';
 import { decodeRgb565 } from '../utility/ColorCodec.js';
 import type { EfaFrame } from './EfaFrame.js';
@@ -8,6 +8,7 @@ import { epfFrameHeight, epfFrameWidth } from './EpfFrame.js';
 import type { FntFile } from './FntFile.js';
 import { HeaFile } from './HeaFile.js';
 import type { HpfFile } from './HpfFile.js';
+import type { LftFile } from './LftFile.js';
 import type { MpfFrame } from './MpfFrame.js';
 import { mpfFrameHeight, mpfFrameWidth } from './MpfFrame.js';
 import type { Palette } from './Palette.js';
@@ -22,12 +23,14 @@ import type { Tile } from './Tile.js';
 
 /**
  * Render a palettized frame (1 byte per pixel) to an RgbaFrame.
- * Palette index 0 is always treated as transparent.
  *
  * @param alphaMode How RGB channels are stored relative to alpha.
  *   Default {@link AlphaMode.Straight} matches canvas `ImageData`; pass
  *   {@link AlphaMode.Premultiplied} for consumers that need baked-in alpha
  *   (WebGL texture uploads with `UNPACK_PREMULTIPLY_ALPHA_WEBGL`, etc.).
+ * @param colorKey Whether palette index 0 is transparent. True (the default) matches
+ *   the sprite path. Ground and background art draws index 0 as an ordinary opaque
+ *   color, so those callers must pass `false` — see {@link renderTile}.
  */
 export function renderPalettized(
   left: number,
@@ -37,6 +40,7 @@ export function renderPalettized(
   data: Uint8Array,
   palette: Palette,
   alphaMode: AlphaMode = AlphaMode.Straight,
+  colorKey = true,
 ): RgbaFrame {
   const dstOffsetX = Math.max(0, left);
   const dstOffsetY = Math.max(0, top);
@@ -48,7 +52,7 @@ export function renderPalettized(
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const paletteIndex = data[y * width + x]!;
-      const color = paletteIndex === 0 ? TRANSPARENT : palette.get(paletteIndex);
+      const color = colorKey && paletteIndex === 0 ? TRANSPARENT : palette.get(paletteIndex);
       const dst = ((y + dstOffsetY) * bitmapWidth + (x + dstOffsetX)) * 4;
       writePixel(pixels, dst, color.r, color.g, color.b, color.a, alphaMode);
     }
@@ -134,15 +138,24 @@ export function renderSpfPalettized(
   palette: Palette,
   alphaMode: AlphaMode = AlphaMode.Straight,
 ): RgbaFrame {
-  return renderPalettized(
-    frame.left,
-    frame.top,
-    spfFrameWidth(frame),
-    spfFrameHeight(frame),
-    frame.data!,
-    palette,
-    alphaMode,
-  );
+  const width = spfFrameWidth(frame);
+  const height = spfFrameHeight(frame);
+
+  // Indexed rows advance by the frame's pitch, which is not always the row width.
+  // Repack into a tightly packed buffer when they differ.
+  let data = frame.data!;
+  const stride = frame.byteWidth;
+  if (stride > 0 && stride !== width) {
+    const packed = new Uint8Array(width * height);
+    for (let y = 0; y < height; y++) {
+      const src = y * stride;
+      if (src >= data.length) break;
+      packed.set(data.subarray(src, Math.min(src + width, data.length)), y * width);
+    }
+    data = packed;
+  }
+
+  return renderPalettized(frame.left, frame.top, width, height, data, palette, alphaMode);
 }
 
 /** Render a colorized SpfFrame to an RgbaFrame. */
@@ -364,13 +377,47 @@ export function renderPcx(
 // Tile rendering
 // ---------------------------------------------------------------------------
 
-/** Render a palettized ground tile (56×27) to an RgbaFrame. */
+/**
+ * Render a palettized ground tile (56×27) to an RgbaFrame.
+ *
+ * Only the isometric diamond inside the 56×27 record is visible: row `y` spans
+ * `x = abs(13 - y) * 2` for `56 - left * 2` pixels, giving 784 visible pixels. Bytes
+ * outside that diamond are padding and are written as fully transparent — real banks
+ * do contain non-zero padding, which would otherwise show up as corner garbage.
+ *
+ * Unlike the sprite path, palette index 0 inside the diamond is an ordinary opaque
+ * color, not a transparency key.
+ */
 export function renderTile(
   tile: Tile,
   palette: Palette,
   alphaMode: AlphaMode = AlphaMode.Straight,
 ): RgbaFrame {
-  return renderPalettized(0, 0, TILE_WIDTH, TILE_HEIGHT, tile.data, palette, alphaMode);
+  const frame = renderPalettized(
+    0,
+    0,
+    TILE_WIDTH,
+    TILE_HEIGHT,
+    tile.data,
+    palette,
+    alphaMode,
+    /* colorKey */ false,
+  );
+
+  for (let y = 0; y < TILE_HEIGHT; y++) {
+    const left = Math.abs(HALF_TILE_HEIGHT - 1 - y) * 2;
+    const right = TILE_WIDTH - left;
+    for (let x = 0; x < TILE_WIDTH; x++) {
+      if (x >= left && x < right) continue;
+      const dst = (y * TILE_WIDTH + x) * 4;
+      frame.data[dst] = 0;
+      frame.data[dst + 1] = 0;
+      frame.data[dst + 2] = 0;
+      frame.data[dst + 3] = 0;
+    }
+  }
+
+  return frame;
 }
 
 // ---------------------------------------------------------------------------
@@ -591,6 +638,183 @@ export function renderText(font: FntFile, text: string, color: Color): RgbaFrame
   }
 
   return { width: totalWidth, height: totalHeight, data };
+}
+
+// ---------------------------------------------------------------------------
+// LFT text rendering — the format the client actually draws text with
+// ---------------------------------------------------------------------------
+
+/** Ink bounds of a measured line, in pixels relative to the pen origin. */
+export interface LftTextMetrics {
+  /** Sum of the glyph advances — use this to position the next string or control. */
+  advanceWidth: number;
+  /** Tight bounding box of the drawn pixels. Empty lines report all zeroes. */
+  ink: { left: number; top: number; right: number; bottom: number };
+}
+
+/**
+ * Convert text into the 16-bit glyph keys an {@link LftFile} is indexed by.
+ *
+ * LFT keys are raw ANSI bytes, not Unicode: a single byte becomes `0x0000`–`0x00FF`,
+ * and a DBCS pair becomes `(lead << 8) | trail`. Pass a `string` only for single-byte
+ * text — each code unit above `0xFF` cannot be represented and is skipped. For Korean,
+ * Japanese or Traditional Chinese, encode to that code page yourself and pass the bytes
+ * with an explicit `isLeadByte` predicate; relying on the host locale would split the
+ * same byte string differently.
+ *
+ * Key `0xFFFF` has no record and is dropped.
+ */
+export function lftGlyphKeys(
+  text: string | Uint8Array | number[],
+  isLeadByte?: (byte: number) => boolean,
+): number[] {
+  let bytes: number[];
+  if (typeof text === 'string') {
+    bytes = [];
+    for (let i = 0; i < text.length; i++) {
+      const code = text.charCodeAt(i);
+      if (code <= 0xff) bytes.push(code);
+    }
+  } else {
+    bytes = Array.from(text);
+  }
+
+  const keys: number[] = [];
+  for (let i = 0; i < bytes.length; i++) {
+    const first = bytes[i]!;
+    let key = first;
+
+    if (isLeadByte?.(first)) {
+      // A lead byte at the very end of the buffer has no trail byte to pair with.
+      if (i + 1 >= bytes.length) break;
+      key = (first << 8) | bytes[++i]!;
+    }
+
+    if (key !== 0xffff) keys.push(key);
+  }
+
+  return keys;
+}
+
+/**
+ * Measure one line of LFT text.
+ *
+ * Use {@link LftTextMetrics.advanceWidth} for layout and `ink` for a tightly cropped
+ * image — they differ because each glyph carries its own bounds. This measures a single
+ * line; splitting paragraphs is the caller's job, as it is in the client.
+ */
+export function measureLftText(font: LftFile, keys: number[]): LftTextMetrics {
+  let penX = 0;
+  let left = Infinity;
+  let top = Infinity;
+  let right = -Infinity;
+  let bottom = -Infinity;
+
+  for (const key of keys) {
+    const glyph = font.getGlyph(key);
+    if (glyph && glyph.bitmapOffset !== 0) {
+      left = Math.min(left, penX + glyph.left);
+      right = Math.max(right, penX + glyph.right);
+      top = Math.min(top, glyph.top);
+      bottom = Math.max(bottom, glyph.bottom);
+    }
+    penX += font.getAdvance(key);
+  }
+
+  const empty = left === Infinity;
+  return {
+    advanceWidth: penX,
+    ink: empty
+      ? { left: 0, top: 0, right: 0, bottom: 0 }
+      : { left, top, right, bottom },
+  };
+}
+
+/**
+ * Draw one LFT glyph into an RGBA buffer at the given pen position.
+ *
+ * `lineTop` is the top of the nominal cell. Glyphs with no bitmap draw nothing but
+ * still advance the pen — see {@link LftFile.getAdvance}.
+ */
+export function drawLftGlyph(
+  font: LftFile,
+  buffer: Uint8Array | Uint8ClampedArray,
+  bufferWidth: number,
+  key: number,
+  penX: number,
+  lineTop: number,
+  color: Color,
+): void {
+  const glyph = font.getGlyph(key);
+  if (!glyph || glyph.bitmapOffset === 0) return;
+
+  const { width, height, data } = font.getGlyphPixels(key);
+  if (width === 0 || height === 0) return;
+
+  const bufferHeight = Math.floor(buffer.length / (bufferWidth * 4));
+  const a = color.a;
+  const r = Math.round((color.r * a) / 255);
+  const g = Math.round((color.g * a) / 255);
+  const b = Math.round((color.b * a) / 255);
+
+  for (let y = 0; y < height; y++) {
+    const pixelY = lineTop + glyph.top + y;
+    if (pixelY < 0 || pixelY >= bufferHeight) continue;
+
+    for (let x = 0; x < width; x++) {
+      if (data[y * width + x] === 0) continue;
+      const pixelX = penX + glyph.left + x;
+      if (pixelX < 0 || pixelX >= bufferWidth) continue;
+
+      const offset = (pixelY * bufferWidth + pixelX) * 4;
+      buffer[offset] = r;
+      buffer[offset + 1] = g;
+      buffer[offset + 2] = b;
+      buffer[offset + 3] = a;
+    }
+  }
+}
+
+/**
+ * Render text to an RgbaFrame using an {@link LftFile} and real per-glyph metrics.
+ *
+ * Accepts the same input forms as {@link lftGlyphKeys}. Line feeds start a new line and
+ * move down by the font's nominal height; every other control character follows the
+ * client's zero-advance rule. The frame is `advanceWidth` wide by
+ * `nominalHeight × lineCount` tall, retaining the original cell offsets rather than
+ * cropping to ink.
+ */
+export function renderLftText(
+  font: LftFile,
+  text: string | Uint8Array | number[],
+  color: Color,
+  isLeadByte?: (byte: number) => boolean,
+): RgbaFrame {
+  const keys = lftGlyphKeys(text, isLeadByte);
+
+  // Split on line feed; carriage returns advance by zero and are simply drawn as nothing.
+  const lines: number[][] = [[]];
+  for (const key of keys) {
+    if (key === 0x0a) lines.push([]);
+    else lines[lines.length - 1]!.push(key);
+  }
+
+  const metrics = lines.map(line => measureLftText(font, line));
+  const width = Math.max(1, ...metrics.map(m => m.advanceWidth));
+  const height = Math.max(1, font.nominalHeight * lines.length);
+
+  const data = new Uint8ClampedArray(width * height * 4);
+
+  for (let i = 0; i < lines.length; i++) {
+    const lineTop = i * font.nominalHeight;
+    let penX = 0;
+    for (const key of lines[i]!) {
+      drawLftGlyph(font, data, width, key, penX, lineTop, color);
+      penX += font.getAdvance(key);
+    }
+  }
+
+  return { width, height, data };
 }
 
 // EUC-KR encoder: attempts TextEncoder('euc-kr'), falls back to returning null for non-ASCII
