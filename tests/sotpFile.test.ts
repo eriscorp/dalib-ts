@@ -1,4 +1,5 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
+import { clientArchive, hasClientArchive } from './clientAssets.js';
 import { describe, expect, it } from 'vitest';
 import { DataArchive } from '../src/data/DataArchive.js';
 import {
@@ -42,9 +43,8 @@ describe('SotpFile', () => {
 
   // Real-client assertion: the doc records exact byte counts for this file. Runs only
   // where the client is installed; skipped in CI so no binary asset is committed.
-  const clientRoot = 'e:/games/dark ages';
-  const iaDat = `${clientRoot}/ia.dat`;
-  describe.skipIf(!existsSync(iaDat))('against the installed ia.dat', () => {
+  const iaDat = clientArchive('ia.dat');
+  describe.skipIf(!hasClientArchive('ia.dat'))('against the installed ia.dat', () => {
     it('matches the documented size and byte histogram', () => {
       const buf = readFileSync(iaDat);
       const archive = DataArchive.fromBuffer(

@@ -1,4 +1,5 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
+import { clientArchive, hasClientArchive } from './clientAssets.js';
 import { describe, expect, it } from 'vitest';
 import { DataArchive } from '../src/data/DataArchive.js';
 import {
@@ -114,9 +115,8 @@ describe('LftFile', () => {
     expect(frame.height).toBe(24); // 2 lines × nominal height 12
   });
 
-  const clientRoot = 'e:/games/dark ages';
-  const nationalDat = `${clientRoot}/national.dat`;
-  describe.skipIf(!existsSync(nationalDat))('against the installed da.lft', () => {
+  const nationalDat = clientArchive('national.dat');
+  describe.skipIf(!hasClientArchive('national.dat'))('against the installed da.lft', () => {
     it('has consistent, in-range bitmap records for every glyph', () => {
       const buf = readFileSync(nationalDat);
       const archive = DataArchive.fromBuffer(
