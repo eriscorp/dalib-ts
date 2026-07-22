@@ -68,6 +68,12 @@ export { MapFile } from './data/MapFile.js';
 export type { MapTile } from './data/MapFile.js';
 export { MetaFile } from './data/MetaFile.js';
 export { MetaFileEntry } from './data/MetaFileEntry.js';
+export {
+  SotpDirection,
+  SotpFile,
+  SOTP_EMPTY_TILE_ID,
+  SOTP_RENDER_OVER_PLAYER,
+} from './data/SotpFile.js';
 
 // Drawing — Palette
 export { Palette } from './drawing/Palette.js';
@@ -91,6 +97,16 @@ export { epfFrameHeight, epfFrameWidth } from './drawing/EpfFrame.js';
 export { FntFile } from './drawing/FntFile.js';
 export { HeaFile } from './drawing/HeaFile.js';
 export { JpfFile } from './drawing/JpfFile.js';
+export {
+  LftFile,
+  lftGlyphHeight,
+  lftGlyphWidth,
+  lftRowStride,
+  LFT_BITMAP_BASE,
+  LFT_GLYPH_COUNT,
+  LFT_RECORD_LENGTH,
+} from './drawing/LftFile.js';
+export type { LftGlyph } from './drawing/LftFile.js';
 export { MpfFile } from './drawing/MpfFile.js';
 export type { MpfFrame } from './drawing/MpfFrame.js';
 export { mpfFrameHeight, mpfFrameWidth } from './drawing/MpfFrame.js';
@@ -135,9 +151,13 @@ export type { QuantizeResult } from './utility/ImageProcessor.js';
 // Drawing — Rendering
 export {
   drawGlyph,
+  drawLftGlyph,
   getGlyphIndex,
+  lftGlyphKeys,
+  measureLftText,
   measureText,
   renderColorized,
+  renderLftText,
   renderDarknessLayer,
   renderDarknessOverlay,
   renderEfa,
@@ -151,3 +171,4 @@ export {
   renderText,
   renderTile,
 } from './drawing/Graphics.js';
+export type { LftTextMetrics } from './drawing/Graphics.js';

@@ -1,5 +1,5 @@
 import type { Color, RgbaFrame } from '../constants.js';
-import { COLORS_PER_PALETTE } from '../constants.js';
+import { COLORS_PER_PALETTE, TRANSPARENT } from '../constants.js';
 import type { DataArchiveEntry } from '../data/DataArchiveEntry.js';
 import { SpanReader } from '../io/SpanReader.js';
 import { SpanWriter } from '../io/SpanWriter.js';
@@ -37,7 +37,15 @@ function encodeFlags(frame: SpfFrame): number {
  */
 export class SpfFile {
   frames: SpfFrame[] = [];
+  /** Pixel mode byte at +0x08. Selects the palettized or colorized pixel path. */
   format: SpfFormatType;
+  /**
+   * Palette mode byte at +0x09. The embedded 0x400-byte palette block is only present
+   * when this and {@link format} are both zero. Every known file has this set to 0.
+   */
+  paletteMode: number = 0;
+  /** The two unidentified bytes at +0x0A, preserved verbatim for round-tripping. */
+  reservedModeBytes: Uint8Array = new Uint8Array(2);
   primaryColors?: Palette;
   secondaryColors?: Palette;
   unknown1: number = 0;
@@ -59,7 +67,10 @@ export class SpfFile {
 
     spf.unknown1 = reader.readUInt32LE();
     spf.unknown2 = reader.readUInt32LE();
-    spf.format = reader.readUInt32LE() as SpfFormatType;
+    // +0x08 and +0x09 are two separate mode bytes, not one uint32.
+    spf.format = reader.readUInt8() as SpfFormatType;
+    spf.paletteMode = reader.readUInt8();
+    spf.reservedModeBytes = new Uint8Array(reader.readBytes(2));
 
     switch (spf.format) {
       case SpfFormatType.Colorized:
@@ -69,13 +80,18 @@ export class SpfFile {
         SpfFile.readPalettized(reader, spf);
         break;
       default:
-        throw new Error(`Unsupported SPF format: ${spf.format}`);
+        throw new Error(`Unsupported SPF pixel mode: ${spf.format}`);
     }
 
     return spf;
   }
 
   private static readPalettized(reader: SpanReader, spf: SpfFile): void {
+    // The embedded palette block is only present when both mode bytes are zero.
+    if (spf.paletteMode !== 0) {
+      throw new Error(`Unsupported SPF palette mode: ${spf.paletteMode}`);
+    }
+
     for (let i = 0; i < COLORS_PER_PALETTE; i++) {
       spf.primaryColors!.set(i, decodeRgb565(reader.readUInt16LE()));
     }
@@ -152,15 +168,23 @@ export class SpfFile {
     const dataStart = reader.position;
 
     for (const frame of spf.frames) {
-      const pixelReader = new SpanReader(
-        bytes_from_reader(reader, dataStart + frame.startAddress, frame.byteCount),
-      );
-      const w = frame.right;
-      const h = frame.bottom;
-      let idx = 0;
+      const pixels = bytes_from_reader(reader, dataStart + frame.startAddress, frame.byteCount);
+      // Bounds define the visible rectangle; rows advance by the frame's own pitch, which
+      // is not always equal to the row's byte width.
+      const w = spfFrameWidth(frame);
+      const h = spfFrameHeight(frame);
+      const stride = frame.byteWidth > 0 ? frame.byteWidth : w * 2;
+
+      frame.colorData = new Array<Color>(w * h);
+
       for (let y = 0; y < h; y++) {
+        const rowOffset = y * stride;
         for (let x = 0; x < w; x++) {
-          frame.colorData![idx++] = decodeRgb565(pixelReader.readUInt16LE());
+          const at = rowOffset + x * 2;
+          frame.colorData[y * w + x] =
+            at + 1 < pixels.length
+              ? decodeRgb565(pixels[at]! | (pixels[at + 1]! << 8))
+              : TRANSPARENT;
         }
       }
     }
@@ -174,7 +198,10 @@ export class SpfFile {
     const writer = new SpanWriter();
     writer.writeUInt32LE(this.unknown1);
     writer.writeUInt32LE(this.unknown2);
-    writer.writeInt32LE(this.format);
+    writer.writeUInt8(this.format);
+    writer.writeUInt8(this.paletteMode);
+    writer.writeUInt8(this.reservedModeBytes[0] ?? 0);
+    writer.writeUInt8(this.reservedModeBytes[1] ?? 0);
 
     if (this.format === SpfFormatType.Palettized) {
       this.writePalettized(writer);

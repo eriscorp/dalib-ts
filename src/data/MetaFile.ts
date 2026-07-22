@@ -151,17 +151,20 @@ export class MetaFile {
 
 /**
  * Encode a string to EUC-KR bytes.
- * In environments with TextEncoder('euc-kr') support this works natively.
- * Elsewhere we fall back to UTF-8 (ASCII-safe for English-only metadata).
+ *
+ * The WHATWG `TextEncoder` only ever emits UTF-8 — its constructor argument is
+ * ignored — so there is no native encoder for EUC-KR. UTF-8 is byte-identical to
+ * EUC-KR for ASCII, so pure-ASCII strings encode correctly; anything outside ASCII
+ * would silently produce the wrong bytes *and* the wrong `uint16` length prefixes,
+ * yielding a file the client cannot parse. We throw instead of writing that.
  */
 function encodeEucKr(str: string): Uint8Array {
-  try {
-    // Some runtimes support encoding via TextEncoder
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const enc = new (TextEncoder as any)('euc-kr');
-    return enc.encode(str) as Uint8Array;
-  } catch {
-    // Fallback: UTF-8 (correct for ASCII, approximate for Korean)
-    return new TextEncoder().encode(str);
+  // eslint-disable-next-line no-control-regex
+  if (/[^\x00-\x7F]/.test(str)) {
+    throw new Error(
+      `Cannot encode "${str}" as EUC-KR: only ASCII is supported when writing a MetaFile. ` +
+        'Encode non-ASCII values to EUC-KR bytes yourself (e.g. via iconv-lite) before serializing.',
+    );
   }
+  return new TextEncoder().encode(str);
 }

@@ -75,7 +75,8 @@ export class HeaFile {
 
     let pixelIndex = 0;
     for (let i = byteOffset; i + 1 < this.rleData.length && pixelIndex < layerWidth; i += 2) {
-      const value = this.rleData[i]!;
+      // Only the low 6 bits are intensity; the top two bits are unidentified flags.
+      const value = this.rleData[i]! & 0x3f;
       const count = this.rleData[i + 1]!;
       if (count === 0) continue;
       const actualCount = Math.min(count, layerWidth - pixelIndex);

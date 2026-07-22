@@ -26,7 +26,9 @@ npm install @eriscorp/dalib-ts
 | `.epf` | `EpfFile`, `EpfFrame` | Entity / mob sprites |
 | `.mpf` | `MpfFile`, `MpfFrame` | Map sprites |
 | `.efa` | `EfaFile`, `EfaFrame` | Effect animations |
-| `.fnt` / `.hea` | `FntFile`, `HeaFile` | Bitmap fonts |
+| `.lft` | `LftFile` | Bitmap fonts (the format the client actually renders text with) |
+| `.fnt` / `.hea` | `FntFile`, `HeaFile` | Dormant fixed-cell fonts / light masks |
+| `sotp.dat` | `SotpFile` | Static-tile collision & render flags |
 | `.tbl` | `PaletteTable`, `ColorTable`, `TileAnimationTable`, `EffectTable` | Lookup tables |
 | `.control` | `ControlFile`, `Control` | UI layout files |
 

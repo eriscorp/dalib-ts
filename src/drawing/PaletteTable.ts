@@ -14,6 +14,27 @@ import type { PaletteCyclingEntry } from './PaletteCyclingEntry.js';
  *
  * Overrides take priority over range entries regardless of parse order.
  * When paletteNumber >= 1000, subtract 1000 and use luminance blending (see PaletteLookup).
+ *
+ * ## IDs are keyed exactly as they appear on disk
+ *
+ * The asset IDs in these files are **one-based**, and the game client subtracts 1 while
+ * parsing so that its stored IDs are zero-based. This class deliberately does *not* do
+ * that — it keys entries by the raw on-disk value — so callers must pass `assetId + 1`.
+ *
+ * Evidence that the files really are offset by one: each table's ID range lands exactly
+ * on its art bank's record count after subtracting 1.
+ *
+ * | Table         | On-disk range | After -1  | Records in the matching bank |
+ * | ------------- | ------------- | --------- | ---------------------------- |
+ * | `stcpal.tbl`  | 2..20424      | 1..20423  | `sotp.dat` covers IDs 1..20423 |
+ * | `mptpal.tbl`  | 2..19416      | 1..19415  | `TILEA.BMP`  = 19,415        |
+ * | `mpspal.tbl`  | 2..19244      | 1..19243  | `TILEAS.BMP` = 19,243        |
+ *
+ * Existing consumers already compensate at the call site — but inconsistently, which is
+ * why moving the adjustment in here is a coordinated breaking change rather than a
+ * drop-in fix. The tile/map paths add the `+1` (`Graphics.cs` in the C# DALib, and
+ * Taliesin's `mapRenderer`/`tileEligibility`); the sprite paths (item, khan, effect)
+ * pass raw IDs and are consequently off by one, masked by their palette-0 fallbacks.
  */
 export class PaletteTable {
   /** Cycling definitions per palette number (from companion numeric .tbl files). */
@@ -133,10 +154,12 @@ export class PaletteTable {
     const table = new PaletteTable();
 
     for (const rawLine of text.split(/\r?\n/)) {
-      const line = rawLine.trim();
+      // The client's range parser skips blank lines and `//` comments.
+      const commentIdx = rawLine.indexOf('//');
+      const line = (commentIdx === -1 ? rawLine : rawLine.slice(0, commentIdx)).trim();
       if (!line) continue;
 
-      const vals = line.split(' ');
+      const vals = line.split(/\s+/);
       if (vals.length < 2) continue;
 
       const min = parseInt(vals[0]!, 10);

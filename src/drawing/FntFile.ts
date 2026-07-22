@@ -5,6 +5,13 @@ import type { DataArchiveEntry } from '../data/DataArchiveEntry.js';
  * A headerless 1-bit-per-pixel glyph bitmap font file (.fnt).
  * English fonts use 8×12 glyph cells; Korean fonts use 16×12 cells.
  * Glyphs are stored contiguously; no file-level header.
+ *
+ * **This is the dormant font format.** `eng%02d.fnt` and `han%02d.fnt` still ship in
+ * `Legend.dat`, and `Darkages.cfg` still stores `EngFont`/`HanFont` indexes, but their
+ * loaders have no callers in the 7.41 client and are not part of the `FontImageLib`
+ * vtable. All text the client actually draws goes through the LFT format — see
+ * {@link import('./LftFile.js').LftFile}, which carries per-glyph advances and bounds
+ * instead of a fixed cell.
  */
 export class FntFile {
   /** Raw 1bpp glyph bitmap data. */

@@ -4,6 +4,59 @@ All notable changes to `@eriscorp/dalib-ts` will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Findings from reconciling the library against the `darkages-741-re` file-format
+documentation, validated against a real 7.41 client install.
+
+### Added
+
+- **`SotpFile`** — reader for `SOTP.DAT` (per-static-tile collision and render flags).
+  Byte 0 is static tile ID 1; the low nibble is per-direction collision and the high
+  nibble is render flags. Exposes `getCollision`/`getRenderFlags`/`blocksMovement`/
+  `canMove`/`isOverPlayer`, plus `SotpDirection`, `SOTP_EMPTY_TILE_ID`, and
+  `SOTP_RENDER_OVER_PLAYER`.
+- **`LftFile`** — reader for the LFT bitmap fonts (`da.lft`/`lod.lft` in `national.dat`),
+  the format the client actually renders text with. Carries per-glyph advance and bounds,
+  with `getGlyphPixels`/`getAdvance` and the `lftGlyphWidth`/`lftGlyphHeight`/
+  `lftRowStride` helpers. **`FntFile` is now documented as the dormant font format** —
+  its loaders have no callers in the 7.41 client.
+- **LFT text rendering** in `Graphics`: `renderLftText`, `measureLftText`, `drawLftGlyph`,
+  and `lftGlyphKeys` (with a DBCS lead-byte path), using real per-glyph metrics instead of
+  the fixed-cell approximation the FNT path uses.
+- **`colorKey` parameter on `renderPalettized`** (default `true`). Lets ground/background
+  callers draw palette index 0 as an opaque color.
+
+### Fixed
+
+- **Ground tiles rendered index 0 as holes and showed padding as garbage.** `renderTile`
+  now draws palette index 0 opaque and masks everything outside the isometric diamond to
+  transparent. Verified against `TILEA.BMP`: ~417k index-0 pixels across 1,143 tiles and
+  1,100 stray padding bytes across 65 tiles were affected.
+- **SPF frames ignored `left`/`top` and `pitch`.** Both the colorized decode in `SpfFile`
+  and the palettized `renderSpfPalettized` path now use `right - left` / `bottom - top`
+  for dimensions and advance rows by the frame's pitch. Affected 190 (offset) + 78 (pitch)
+  of 982 real frames.
+- **SPF mode bytes were read as one `uint32`.** They are two `u8`s (`pixelMode` at +0x08,
+  `paletteMode` at +0x09) followed by two preserved bytes; the embedded palette block is
+  gated on both being zero. New `SpfFile.paletteMode` / `reservedModeBytes` fields;
+  round-trips existing files byte-for-byte.
+- **`ControlFile` invented UI frames.** The `<IMAGE>` block is an ordered list, not a
+  frame range; the old start/end expansion turned non-consecutive runs like
+  `_nemot.spf` 0, 1, 3 into 0, 1, 2, 3 and shifted button states.
+- **`HeaFile`** now masks run intensity with `& 0x3F` (the top two bits are unidentified
+  flags).
+- **`MapFile`** reads tile IDs as unsigned and accepts trailing bytes (rejecting only
+  short files), matching the client's `file_read_map_cells`.
+- **`MetaFile`** now throws when asked to write non-ASCII values instead of silently
+  emitting UTF-8, which would corrupt the `uint16` length prefixes.
+- **`DataArchive`** detects the extended (`0xFFFFFFFF`) archive header and throws a clear
+  error rather than reading it as a huge entry count.
+- **`PaletteTable`** strips `//` comments (including trailing ones) and tolerates runs of
+  whitespace between tokens. Documented that its asset IDs are keyed one-based as they
+  appear on disk (the client subtracts 1); moving that adjustment into the library is a
+  deferred, cross-repo breaking change.
+
 ## [2.0.0] - 2026-04-20
 
 Tracks upstream **eriscorp/dalib DALib 0.7.0** (PRs #13 and #14).
