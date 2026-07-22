@@ -1,0 +1,66 @@
+# Continuous-integration checks for pull requests and main.
+#
+# Complements publish.yml (which only fires on a published release): this gates
+# every PR and every push to main on typecheck + tests + a coverage floor +
+# build, so a regression is caught before merge rather than at publish time.
+# publish.yml itself only builds and publishes — without this workflow nothing
+# ran the test suite at all.
+#
+# The coverage floors live in vitest.config.ts and are ratcheted to just under
+# the measured numbers, so this step fails on a coverage regression rather than
+# only on an outright test failure.
+#
+# Runs on ubuntu-latest to match publish.yml. Node 24 likewise.
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+# One CI run per ref; a new push cancels the in-flight run for the same
+# branch/PR.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run lint
+
+      # Tests that assert against a real Dark Ages client install skip here,
+      # because no client is present on the runner. The coverage floors are set
+      # from this case, which is the lower of the two.
+      - name: Test + coverage gate
+        run: npm run test:coverage
+
+      - name: Build
+        run: npm run build
+
+      # Fails on moderate or worse. One low-severity advisory is currently
+      # accepted: esbuild's dev-server file-read issue, which is reachable only
+      # when running an esbuild dev server (this package never does) and is
+      # pinned below the fix by tsup's `esbuild: ^0.27.0` range.
+      - name: Audit (moderate and above)
+        run: npm audit --audit-level=moderate

@@ -26,13 +26,15 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:browser": "vitest --browser",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "test:coverage": "vitest run --coverage"
   },
   "devDependencies": {
     "@types/node": "^25.5.2",
+    "@vitest/coverage-v8": "^4.1.10",
     "tsup": "^8.0.0",
     "typescript": "^5.4.0",
-    "vitest": "^1.6.0"
+    "vitest": "^4.1.10"
   },
   "keywords": [
     "dark-ages",
