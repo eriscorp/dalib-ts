@@ -19,16 +19,20 @@ export default defineConfig({
         // against regression without blocking work. Raise them as coverage
         // improves; do not lower them to make a red build pass.
         //
-        // Measure with `npm run test:coverage`. Note that some tests assert
-        // against a real client install and skip when it is absent, so a machine
-        // with the client reports higher numbers than CI does. Set these floors
-        // from the CI case, which is the lower of the two.
-        // Baseline measured on this commit: lines 33.76, branches 26.70,
-        // functions 40.55, statements 31.98.
-        lines: 32,
-        branches: 25,
-        functions: 38,
-        statements: 30,
+        // Measure with `npm run test:coverage`. Some tests assert against a real
+        // client install and skip when it is absent, so a machine with the client
+        // reports higher numbers than CI does. Reproduce the CI case, which is the
+        // lower of the two, by pointing the tests at a path that does not exist:
+        //
+        //   DALIB_CLIENT_DIR=/nonexistent npm run test:coverage
+        //
+        // Baseline on this commit — with a client: lines 38.28, branches 32.80,
+        // functions 47.95, statements 36.50. Without one, which is what CI sees:
+        // lines 37.92, branches 32.38, functions 47.95, statements 36.18.
+        lines: 37,
+        branches: 31,
+        functions: 46,
+        statements: 35,
       },
     },
   },
