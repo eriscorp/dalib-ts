@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { buildArchive } from './archiveFixture.js';
 import { TILE_SIZE } from '../src/constants.js';
+import { SpanWriter } from '../src/io/SpanWriter.js';
+import { encodeRgb565 } from '../src/utility/ColorCodec.js';
 import { EpfFile } from '../src/drawing/EpfFile.js';
 import { SpfFile } from '../src/drawing/SpfFile.js';
 import { SpfFormatType } from '../src/enums.js';
@@ -162,6 +164,80 @@ describe('SpfView', () => {
       expect(() => view.get(1)).toThrow(RangeError);
       expect(view.tryGet(1)).toBeUndefined();
       expect(view.tryGet(0)).toBeDefined();
+    });
+
+    /**
+     * The parity test above cannot catch an origin or pitch bug on its own: every
+     * frame `fromColorizedRgbaFrames` builds has left = top = 0 and
+     * byteWidth = width * 2, which is exactly where the correct and the incorrect
+     * conventions agree. This fixture is hand-built so they diverge.
+     */
+    describe('with a non-zero origin and a padded pitch', () => {
+      function offsetColorizedSpf(): Uint8Array {
+        const left = 2, top = 1, right = 6, bottom = 4, padding = 4;
+        const w = right - left, h = bottom - top;
+        const stride = w * 2 + padding;
+        const byteCount = stride * h;
+
+        const wr = new SpanWriter();
+        wr.writeUInt32LE(0);
+        wr.writeUInt32LE(0);
+        wr.writeUInt8(2); // format = Colorized
+        wr.writeUInt8(0);
+        wr.writeUInt8(0);
+        wr.writeUInt8(0);
+        wr.writeUInt32LE(1); // frameCount
+
+        wr.writeUInt16LE(left);
+        wr.writeUInt16LE(top);
+        wr.writeUInt16LE(right);
+        wr.writeUInt16LE(bottom);
+        wr.writeInt16LE(0);
+        wr.writeInt16LE(0);
+        wr.writeUInt32LE(0);
+        wr.writeUInt32LE(0);
+        wr.writeUInt32LE(stride);
+        wr.writeUInt32LE(byteCount);
+        wr.writeUInt32LE(w * h);
+        wr.writeUInt32LE(byteCount);
+
+        const rowColors = [
+          { r: 255, g: 0, b: 0, a: 255 },
+          { r: 0, g: 255, b: 0, a: 255 },
+          { r: 0, g: 0, b: 255, a: 255 },
+        ];
+        for (let y = 0; y < h; y++) {
+          const color = rowColors[y % rowColors.length]!;
+          for (let x = 0; x < w; x++) wr.writeUInt16LE(encodeRgb565(color));
+          for (let p = 0; p < padding; p++) wr.writeUInt8(0);
+        }
+
+        return wr.toUint8Array();
+      }
+
+      it('reads the same pixels as the eager parser', () => {
+        const bytes = offsetColorizedSpf();
+        const view = SpfView.fromArchive('fx', buildArchive([{ name: 'fx.spf', data: bytes }]));
+        const eager = SpfFile.fromBuffer(bytes);
+
+        const lazy = view.get(0);
+        expect(lazy.colorData).toHaveLength(eager.frames[0]!.colorData!.length);
+        expect(lazy.colorData).toEqual(eager.frames[0]!.colorData);
+      });
+
+      it('sizes the frame from the bounds and honours the pitch', () => {
+        const view = SpfView.fromArchive(
+          'fx',
+          buildArchive([{ name: 'fx.spf', data: offsetColorizedSpf() }]),
+        );
+        const frame = view.get(0);
+        const w = 6 - 2;
+
+        expect(frame.colorData).toHaveLength(w * (4 - 1));
+        expect(frame.colorData![0]!.r).toBeGreaterThan(240);
+        expect(frame.colorData![w]!.g).toBeGreaterThan(240);
+        expect(frame.colorData![2 * w]!.b).toBeGreaterThan(240);
+      });
     });
   });
 });

@@ -250,6 +250,16 @@ export class SpfFile {
     let startAddress = 0;
 
     for (const frame of this.frames) {
+      // `colorData` is tightly packed by the reader, so the frame is written with no
+      // row padding. Normalize the pitch and the byte counts to what is actually
+      // emitted — keeping a source file's padded pitch here would make every later
+      // frame's startAddress point into the wrong place.
+      const w = spfFrameWidth(frame);
+      const h = spfFrameHeight(frame);
+      frame.byteWidth = w * 2;
+      frame.imageByteCount = w * h;
+      frame.byteCount = w * h * 4; // the RGB565 copy plus the RGB555 copy
+
       frame.startAddress = startAddress;
       startAddress += frame.byteCount;
       writer.writeUInt16LE(frame.left);
@@ -268,19 +278,19 @@ export class SpfFile {
     writer.writeUInt32LE(startAddress);
 
     for (const frame of this.frames) {
-      const w = frame.right;
-      const h = frame.bottom;
+      // The bounds give the size, exactly as the reader does. Using right/bottom here
+      // would run past the end of colorData for any frame with a non-zero origin.
+      const w = spfFrameWidth(frame);
+      const h = spfFrameHeight(frame);
+      const colorData = frame.colorData!;
+
       // Primary: RGB565
-      for (let y = 0; y < h; y++) {
-        for (let x = 0; x < w; x++) {
-          writer.writeUInt16LE(encodeRgb565(frame.colorData![y * w + x]!));
-        }
+      for (let i = 0; i < w * h; i++) {
+        writer.writeUInt16LE(encodeRgb565(colorData[i] ?? TRANSPARENT));
       }
       // Secondary: RGB555
-      for (let y = 0; y < h; y++) {
-        for (let x = 0; x < w; x++) {
-          writer.writeUInt16LE(encodeRgb555(frame.colorData![y * w + x]!));
-        }
+      for (let i = 0; i < w * h; i++) {
+        writer.writeUInt16LE(encodeRgb555(colorData[i] ?? TRANSPARENT));
       }
     }
   }
