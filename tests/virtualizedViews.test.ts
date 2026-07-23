@@ -1,0 +1,148 @@
+import { describe, expect, it } from 'vitest';
+import { DATA_ARCHIVE_ENTRY_NAME_LENGTH, TILE_SIZE } from '../src/constants.js';
+import { DataArchive } from '../src/data/DataArchive.js';
+import { SpanWriter } from '../src/io/SpanWriter.js';
+import { EpfFile } from '../src/drawing/EpfFile.js';
+import { SpfFile } from '../src/drawing/SpfFile.js';
+import { SpfFormatType } from '../src/enums.js';
+import { Palette } from '../src/drawing/Palette.js';
+import { EpfView } from '../src/drawing/virtualized/EpfView.js';
+import { SpfView } from '../src/drawing/virtualized/SpfView.js';
+import { TilesetView } from '../src/drawing/virtualized/TilesetView.js';
+
+/** Build a minimal valid .dat containing the supplied entries. */
+function buildArchive(files: { name: string; data: Uint8Array }[]): DataArchive {
+  const ENTRY_HEADER_LEN = 4 + DATA_ARCHIVE_ENTRY_NAME_LENGTH;
+  let address = 4 + files.length * ENTRY_HEADER_LEN + 4;
+  const addresses = files.map(f => {
+    const a = address;
+    address += f.data.length;
+    return a;
+  });
+
+  const writer = new SpanWriter();
+  writer.writeInt32LE(files.length + 1);
+  files.forEach((f, i) => {
+    writer.writeInt32LE(addresses[i]!);
+    writer.writeFixedAscii(f.name, DATA_ARCHIVE_ENTRY_NAME_LENGTH);
+  });
+  writer.writeInt32LE(address);
+  files.forEach(f => writer.writeBytes(f.data));
+
+  return DataArchive.fromBuffer(writer.toUint8Array());
+}
+
+describe('TilesetView', () => {
+  const tilesetBytes = (count: number) => {
+    const bytes = new Uint8Array(count * TILE_SIZE);
+    for (let t = 0; t < count; t++) bytes.fill(t + 1, t * TILE_SIZE, (t + 1) * TILE_SIZE);
+    return bytes;
+  };
+
+  it('counts tiles without reading their pixels', () => {
+    const archive = buildArchive([{ name: 'tilea.bmp', data: tilesetBytes(3) }]);
+    expect(TilesetView.fromArchive('tilea', archive).count).toBe(3);
+  });
+
+  it('slices a tile on demand', () => {
+    const archive = buildArchive([{ name: 'tilea.bmp', data: tilesetBytes(3) }]);
+    const view = TilesetView.fromArchive('tilea.bmp', archive);
+    expect(view.get(1).data).toHaveLength(TILE_SIZE);
+    expect(view.get(2).data[0]).toBe(3);
+  });
+
+  it('throws on an out-of-range index but tryGet returns undefined', () => {
+    const view = TilesetView.fromArchive('tilea', buildArchive([{ name: 'tilea.bmp', data: tilesetBytes(1) }]));
+    expect(() => view.get(5)).toThrow(RangeError);
+    expect(() => view.get(-1)).toThrow(RangeError);
+    expect(view.tryGet(5)).toBeUndefined();
+    expect(view.tryGet(0)).toBeDefined();
+  });
+
+  it('throws when the entry is missing', () => {
+    expect(() => TilesetView.fromArchive('nope', buildArchive([]))).toThrow(/not found/);
+  });
+});
+
+describe('EpfView', () => {
+  function epfBytes(): Uint8Array {
+    const epf = new EpfFile();
+    epf.pixelWidth = 8;
+    epf.pixelHeight = 6;
+    epf.frames.push({ top: 0, left: 0, bottom: 2, right: 3, data: new Uint8Array([1, 2, 3, 4, 5, 6]) });
+    epf.frames.push({ top: 1, left: 1, bottom: 3, right: 3, data: new Uint8Array([7, 8, 9, 10]) });
+    return epf.toUint8Array();
+  }
+
+  it('parses the header and TOC without decoding pixels', () => {
+    const view = EpfView.fromArchive('sprite.epf', buildArchive([{ name: 'sprite.epf', data: epfBytes() }]));
+    expect(view.count).toBe(2);
+    expect(view.pixelWidth).toBe(8);
+    expect(view.pixelHeight).toBe(6);
+  });
+
+  it('slices a frame on demand, matching the eager parser', () => {
+    const bytes = epfBytes();
+    const view = EpfView.fromArchive('sprite', buildArchive([{ name: 'sprite.epf', data: bytes }]));
+    const eager = EpfFile.fromBuffer(bytes);
+
+    const frame = view.get(0);
+    expect(frame).toMatchObject({ top: 0, left: 0, bottom: 2, right: 3 });
+    expect(Array.from(frame.data)).toEqual(Array.from(eager.frames[0]!.data));
+    expect(Array.from(view.get(1).data)).toEqual(Array.from(eager.frames[1]!.data));
+  });
+
+  it('bounds-checks the frame index', () => {
+    const view = EpfView.fromArchive('sprite', buildArchive([{ name: 'sprite.epf', data: epfBytes() }]));
+    expect(() => view.get(99)).toThrow(RangeError);
+    expect(view.tryGet(99)).toBeUndefined();
+    expect(view.tryGet(0)).toBeDefined();
+  });
+
+  it('throws when the entry is missing', () => {
+    expect(() => EpfView.fromArchive('nope', buildArchive([]))).toThrow(/not found/);
+  });
+});
+
+describe('SpfView', () => {
+  function palettizedSpf(): Uint8Array {
+    const spf = new SpfFile(SpfFormatType.Palettized);
+    spf.primaryColors = new Palette();
+    spf.secondaryColors = new Palette();
+    spf.primaryColors.set(1, { r: 255, g: 0, b: 0, a: 255 });
+    spf.frames.push({
+      left: 0, top: 0, right: 2, bottom: 2,
+      centerX: 0, centerY: 0, flags: 0, hasCenterPoint: false,
+      startAddress: 0, byteWidth: 2, byteCount: 4, imageByteCount: 4,
+      data: new Uint8Array([1, 1, 1, 1]),
+    });
+    return spf.toUint8Array();
+  }
+
+  it('reads the frame table and the embedded palette', () => {
+    const view = SpfView.fromArchive('art.spf', buildArchive([{ name: 'art.spf', data: palettizedSpf() }]));
+    expect(view.count).toBe(1);
+    expect(view.format).toBe(SpfFormatType.Palettized);
+    expect(view.primaryColors).toBeDefined();
+  });
+
+  it('slices a frame whose pixels match the eager parser', () => {
+    const bytes = palettizedSpf();
+    const view = SpfView.fromArchive('art', buildArchive([{ name: 'art.spf', data: bytes }]));
+    const eager = SpfFile.fromBuffer(bytes);
+
+    const frame = view.get(0);
+    expect(frame.right - frame.left).toBe(2);
+    expect(Array.from(frame.data!)).toEqual(Array.from(eager.frames[0]!.data!));
+  });
+
+  it('bounds-checks the frame index', () => {
+    const view = SpfView.fromArchive('art', buildArchive([{ name: 'art.spf', data: palettizedSpf() }]));
+    expect(() => view.get(9)).toThrow(RangeError);
+    expect(view.tryGet(9)).toBeUndefined();
+  });
+
+  it('throws when the entry is missing', () => {
+    expect(() => SpfView.fromArchive('nope', buildArchive([]))).toThrow(/not found/);
+  });
+});

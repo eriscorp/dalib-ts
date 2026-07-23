@@ -26,13 +26,12 @@ export default defineConfig({
         //
         //   DALIB_CLIENT_DIR=/nonexistent npm run test:coverage
         //
-        // Baseline on this commit — with a client: lines 38.28, branches 32.80,
-        // functions 47.95, statements 36.50. Without one, which is what CI sees:
-        // lines 37.92, branches 32.38, functions 47.95, statements 36.18.
-        lines: 37,
-        branches: 31,
-        functions: 46,
-        statements: 35,
+        // Baseline on this commit, measured without a client (what CI sees):
+        // lines 76.89, branches 68.46, functions 88.77, statements 75.74.
+        lines: 75,
+        branches: 67,
+        functions: 87,
+        statements: 74,
       },
     },
   },

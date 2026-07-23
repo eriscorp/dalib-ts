@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { KhanPalOverrideType } from '../src/enums.js';
 import { PaletteTable } from '../src/drawing/PaletteTable.js';
+
+const parse = (text: string) => PaletteTable.fromBuffer(new TextEncoder().encode(text));
 
 describe('PaletteTable parsing', () => {
   it('skips // comment lines', () => {
@@ -24,5 +27,122 @@ describe('PaletteTable parsing', () => {
     expect(table.getPaletteNumber(1)).toBe(7);
     expect(table.getPaletteNumber(2)).toBe(7);
     expect(table.getPaletteNumber(3)).toBe(7);
+  });
+
+  it('returns 0 for an unmapped id', () => {
+    expect(parse('1 2 7').getPaletteNumber(999)).toBe(0);
+  });
+
+  it('skips lines with too few tokens or non-numeric values', () => {
+    const table = parse('5\nabc def\n7 3\n');
+    expect(table.getPaletteNumber(7)).toBe(3);
+  });
+
+  it('reads -1 and -2 as male and female overrides', () => {
+    const table = parse('5 1\n5 2 -1\n5 3 -2\n');
+    expect(table.getPaletteNumber(5)).toBe(1);
+    expect(table.getPaletteNumber(5, KhanPalOverrideType.Male)).toBe(2);
+    expect(table.getPaletteNumber(5, KhanPalOverrideType.Female)).toBe(3);
+  });
+
+  it('falls back to the general override when the sex-specific one is absent', () => {
+    const table = parse('5 9\n');
+    expect(table.getPaletteNumber(5, KhanPalOverrideType.Male)).toBe(9);
+  });
+
+  it('lets a single-value override win over a range entry', () => {
+    // The range maps 1..10 to palette 4; the bare pair overrides id 5 to palette 8
+    // regardless of the order the two lines appear in.
+    const table = parse('5 8\n1 10 4\n');
+    expect(table.getPaletteNumber(4)).toBe(4);
+    expect(table.getPaletteNumber(5)).toBe(8);
+  });
+});
+
+describe('PaletteTable mutation', () => {
+  it('adds general, male and female overrides', () => {
+    const table = new PaletteTable();
+    table.add(1, 10);
+    table.add(1, 20, KhanPalOverrideType.Male);
+    table.add(1, 30, KhanPalOverrideType.Female);
+
+    expect(table.getPaletteNumber(1)).toBe(10);
+    expect(table.getPaletteNumber(1, KhanPalOverrideType.Male)).toBe(20);
+    expect(table.getPaletteNumber(1, KhanPalOverrideType.Female)).toBe(30);
+  });
+
+  it('remove clears every override kind for the id', () => {
+    const table = new PaletteTable();
+    table.add(1, 10);
+    table.add(1, 20, KhanPalOverrideType.Male);
+    table.remove(1);
+
+    expect(table.getPaletteNumber(1)).toBe(0);
+    expect(table.getPaletteNumber(1, KhanPalOverrideType.Male)).toBe(0);
+  });
+
+  it('merges another table over itself', () => {
+    const base = parse('1 5 2\n');
+    const other = new PaletteTable();
+    other.add(3, 99);
+
+    base.merge(other);
+    expect(base.getPaletteNumber(3)).toBe(99);
+    // Entries the other table does not mention survive.
+    expect(base.getPaletteNumber(1)).toBe(2);
+  });
+
+  it('exposes cycling entries only for palettes that define them', () => {
+    const table = new PaletteTable();
+    expect(table.getCyclingEntries(1)).toBeUndefined();
+    table.cyclingEntries.set(1, [{ startIndex: 0, endIndex: 3, period: 100 }]);
+    expect(table.getCyclingEntries(1)).toHaveLength(1);
+  });
+});
+
+describe('PaletteTable serialization', () => {
+  it('collapses consecutive ids into a single range line', () => {
+    const table = parse('1 4 7\n');
+    expect(table.toText().trimEnd().split('\n')).toEqual(['1 4 7']);
+  });
+
+  it('writes a lone id as a bare pair', () => {
+    const table = new PaletteTable();
+    table.add(9, 3);
+    expect(table.toText().trimEnd()).toBe('9 3');
+  });
+
+  it('splits a non-consecutive group into separate lines', () => {
+    const table = new PaletteTable();
+    table.add(1, 5);
+    table.add(2, 5);
+    table.add(9, 5);
+    const lines = table.toText().trimEnd().split('\n');
+    expect(lines).toContain('1 2 5');
+    expect(lines).toContain('9 5');
+  });
+
+  it('emits the -1 and -2 suffixes for sex overrides', () => {
+    const table = new PaletteTable();
+    table.add(4, 11, KhanPalOverrideType.Male);
+    table.add(4, 12, KhanPalOverrideType.Female);
+    const text = table.toText();
+    expect(text).toContain('4 11 -1');
+    expect(text).toContain('4 12 -2');
+  });
+
+  it('round-trips through text', () => {
+    const original = parse('1 4 7\n20 3\n8 9 -1\n');
+    const reparsed = PaletteTable.fromBuffer(original.toUint8Array());
+
+    expect(reparsed.getPaletteNumber(2)).toBe(7);
+    expect(reparsed.getPaletteNumber(20)).toBe(3);
+    expect(reparsed.getPaletteNumber(8, KhanPalOverrideType.Male)).toBe(9);
+  });
+
+  it('encodes to bytes', () => {
+    const table = new PaletteTable();
+    table.add(1, 2);
+    expect(table.toUint8Array().length).toBeGreaterThan(0);
   });
 });
