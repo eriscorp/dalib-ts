@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { buildArchive } from './archiveFixture.js';
+import type { RgbaFrame } from '../src/constants.js';
 import { MpfFile } from '../src/drawing/MpfFile.js';
 import { MpfFormatType, MpfHeaderType, MpfIdleType } from '../src/enums.js';
 import { SpanWriter } from '../src/io/SpanWriter.js';
@@ -252,6 +254,83 @@ describe('MpfFile', () => {
 
       // Verbatim passthrough → re-serializing reproduces the input exactly.
       expect(Array.from(mpf.toUint8Array())).toEqual(Array.from(original));
+    });
+  });
+
+  describe('archive factories', () => {
+    const bytes = () => buildMultipleAttacksMpf([oneFrame()], { paletteNumber: 5 });
+
+    it('reads from an entry, with or without the extension', () => {
+      const archive = buildArchive([{ name: 'mns001.mpf', data: bytes() }]);
+      expect(MpfFile.fromEntry(archive.get('mns001.mpf')!).paletteNumber).toBe(5);
+      expect(MpfFile.fromArchive('mns001', archive).paletteNumber).toBe(5);
+      expect(MpfFile.fromArchive('mns001.mpf', archive).paletteNumber).toBe(5);
+    });
+
+    it('throws when the entry is missing', () => {
+      expect(() => MpfFile.fromArchive('nope', buildArchive([]))).toThrow(/not found/);
+    });
+
+    it('accepts an ArrayBuffer', () => {
+      const copy = new Uint8Array(bytes());
+      expect(MpfFile.fromBuffer(copy.buffer as ArrayBuffer).paletteNumber).toBe(5);
+    });
+  });
+
+  describe('fromRgbaFrames', () => {
+    /** An RGBA frame with one opaque pixel at (x, y); everything else transparent. */
+    function dot(width: number, height: number, x: number, y: number, r: number, g: number, b: number): RgbaFrame {
+      const data = new Uint8ClampedArray(width * height * 4);
+      const o = (y * width + x) * 4;
+      data[o] = r; data[o + 1] = g; data[o + 2] = b; data[o + 3] = 255;
+      return { width, height, data };
+    }
+
+    it('sets the sprite size from the largest source frame', () => {
+      const { entity } = MpfFile.fromRgbaFrames([dot(8, 6, 0, 0, 1, 1, 1), dot(4, 10, 0, 0, 1, 1, 1)]);
+      expect(entity.pixelWidth).toBe(8);
+      expect(entity.pixelHeight).toBe(10);
+    });
+
+    it('crops each frame to its ink and makes the crop offset the anchor', () => {
+      const { entity } = MpfFile.fromRgbaFrames([dot(8, 6, 3, 2, 255, 0, 0)]);
+      const frame = entity.frames[0]!;
+      expect(frame.left).toBe(3);
+      expect(frame.top).toBe(2);
+      expect(frame.right).toBe(4);
+      expect(frame.bottom).toBe(3);
+      expect(frame.data).toHaveLength(1);
+    });
+
+    it('quantizes every frame against one shared palette', () => {
+      const { entity, palette } = MpfFile.fromRgbaFrames([
+        dot(4, 4, 0, 0, 255, 0, 0),
+        dot(4, 4, 0, 0, 0, 0, 255),
+      ]);
+      expect(entity.frames).toHaveLength(2);
+      expect(palette.length).toBe(256);
+      expect(entity.frames[0]!.data[0]).not.toBe(entity.frames[1]!.data[0]);
+    });
+
+    it('drops a fully transparent frame, which crops to zero area', () => {
+      const blank: RgbaFrame = { width: 4, height: 4, data: new Uint8ClampedArray(4 * 4 * 4) };
+      const { entity } = MpfFile.fromRgbaFrames([blank, dot(4, 4, 1, 1, 9, 9, 9)]);
+      expect(entity.frames).toHaveLength(1);
+      expect(entity.frames[0]!.left).toBe(1);
+    });
+
+    it('round-trips the built file back through the parser', () => {
+      const { entity } = MpfFile.fromRgbaFrames([dot(4, 4, 1, 1, 200, 100, 50)]);
+      const reparsed = MpfFile.fromBuffer(entity.toUint8Array());
+      expect(reparsed.pixelWidth).toBe(4);
+      expect(reparsed.frames).toHaveLength(1);
+      expect(Array.from(reparsed.frames[0]!.data)).toEqual(Array.from(entity.frames[0]!.data));
+    });
+
+    it('handles an empty frame list', () => {
+      const { entity } = MpfFile.fromRgbaFrames([]);
+      expect(entity.frames).toHaveLength(0);
+      expect(entity.pixelWidth).toBe(0);
     });
   });
 });

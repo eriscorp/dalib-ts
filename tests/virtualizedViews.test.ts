@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { DATA_ARCHIVE_ENTRY_NAME_LENGTH, TILE_SIZE } from '../src/constants.js';
-import { DataArchive } from '../src/data/DataArchive.js';
-import { SpanWriter } from '../src/io/SpanWriter.js';
+import { buildArchive } from './archiveFixture.js';
+import { TILE_SIZE } from '../src/constants.js';
 import { EpfFile } from '../src/drawing/EpfFile.js';
 import { SpfFile } from '../src/drawing/SpfFile.js';
 import { SpfFormatType } from '../src/enums.js';
@@ -9,28 +8,6 @@ import { Palette } from '../src/drawing/Palette.js';
 import { EpfView } from '../src/drawing/virtualized/EpfView.js';
 import { SpfView } from '../src/drawing/virtualized/SpfView.js';
 import { TilesetView } from '../src/drawing/virtualized/TilesetView.js';
-
-/** Build a minimal valid .dat containing the supplied entries. */
-function buildArchive(files: { name: string; data: Uint8Array }[]): DataArchive {
-  const ENTRY_HEADER_LEN = 4 + DATA_ARCHIVE_ENTRY_NAME_LENGTH;
-  let address = 4 + files.length * ENTRY_HEADER_LEN + 4;
-  const addresses = files.map(f => {
-    const a = address;
-    address += f.data.length;
-    return a;
-  });
-
-  const writer = new SpanWriter();
-  writer.writeInt32LE(files.length + 1);
-  files.forEach((f, i) => {
-    writer.writeInt32LE(addresses[i]!);
-    writer.writeFixedAscii(f.name, DATA_ARCHIVE_ENTRY_NAME_LENGTH);
-  });
-  writer.writeInt32LE(address);
-  files.forEach(f => writer.writeBytes(f.data));
-
-  return DataArchive.fromBuffer(writer.toUint8Array());
-}
 
 describe('TilesetView', () => {
   const tilesetBytes = (count: number) => {
