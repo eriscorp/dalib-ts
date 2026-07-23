@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { renderEpf, renderPalettized } from '../src/drawing/Graphics.js';
+import { renderColorized, renderEpf, renderPalettized } from '../src/drawing/Graphics.js';
 import { Palette } from '../src/drawing/Palette.js';
 import type { EpfFrame } from '../src/drawing/EpfFrame.js';
 import { AlphaMode } from '../src/enums.js';
@@ -35,6 +35,36 @@ describe('renderEpf', () => {
     expect(out.height).toBe(1);
     expect(out.data[0]).toBe(255);
     expect(out.data[3]).toBe(255);
+  });
+});
+
+describe('shared renderers guard empty frames', () => {
+  const palette = new Palette();
+  palette.set(1, { r: 255, g: 128, b: 64, a: 255 });
+
+  // Empty placeholder frames (e.g. setoa.dat UI sprites) encode Right < Left and
+  // Bottom < Top, so the shared renderers see non-positive width/height. They must
+  // return a 1×1 transparent frame, not throw a RangeError or return a 0×0 frame.
+  it('renderPalettized returns 1×1 transparent for negative width/height', () => {
+    const out = renderPalettized(45, 16, -45, -16, new Uint8Array(0), palette);
+    expect(out.width).toBe(1);
+    expect(out.height).toBe(1);
+    expect(out.data.length).toBe(4);
+    expect(out.data[3]).toBe(0);
+  });
+
+  it('renderColorized returns 1×1 transparent for negative width/height', () => {
+    const out = renderColorized(45, 16, -45, -16, []);
+    expect(out.width).toBe(1);
+    expect(out.height).toBe(1);
+    expect(out.data.length).toBe(4);
+    expect(out.data[3]).toBe(0);
+  });
+
+  it('renderPalettized returns 1×1 transparent for zero width', () => {
+    const out = renderPalettized(0, 0, 0, 5, new Uint8Array(0), palette);
+    expect(out.width).toBe(1);
+    expect(out.height).toBe(1);
   });
 });
 

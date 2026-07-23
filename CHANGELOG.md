@@ -59,7 +59,16 @@ documentation, validated against a real 7.41 client install.
 - **`MetaFile`** now throws when asked to write non-ASCII values instead of silently
   emitting UTF-8, which would corrupt the `uint16` length prefixes.
 - **`DataArchive`** detects the extended (`0xFFFFFFFF`) archive header and throws a clear
-  error rather than reading it as a huge entry count.
+  error rather than reading it as a huge entry count. It now also rejects any negative
+  entry-count word (not just the exact `0xFFFFFFFF` value); a corrupt or hostile count
+  previously fell through and silently produced an empty archive. Ports the C# DALib
+  hardening (commit `7479957`).
+- **Empty frames no longer crash the shared renderers.** `renderPalettized` and
+  `renderColorized` now return a 1×1 transparent frame when a placeholder frame reports
+  non-positive dimensions (`Right < Left` / `Bottom < Top`), instead of throwing a
+  `RangeError` or returning a 0×0 frame. This central guard covers the HPF, SPF, MPF and
+  tile paths at once — for example iterating every frame of a real `setoa.dat` UI sprite.
+  Ports the C# DALib `SimpleRender` fix (commit `b2d0de3`).
 - **`PaletteTable`** strips `//` comments (including trailing ones) and tolerates runs of
   whitespace between tokens. Documented that its asset IDs are keyed one-based as they
   appear on disk (the client subtracts 1); moving that adjustment into the library is a
