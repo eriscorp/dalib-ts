@@ -57,6 +57,24 @@ documentation, validated against a real 7.41 client install.
   appear on disk (the client subtracts 1); moving that adjustment into the library is a
   deferred, cross-repo breaking change.
 
+### Internal
+
+These changes do not affect the published package. They are recorded because the
+dependency bump closes advisories that a `npm audit` against this repository reports.
+
+- **Continuous integration.** Added a workflow that runs on every pull request and on
+  every push to `main`: type check, tests with the coverage gate, build, then
+  `npm audit`. The repository previously ran no tests in CI; the publish workflow only
+  built and published on a release.
+- **Coverage gate.** Added `@vitest/coverage-v8` with the v8 provider and global floors
+  that fail the build when coverage drops. Line coverage went from 37.9% to 99.5% and
+  the suite from 109 to 530 tests, across the parsers, the renderers, the lazy views,
+  the RGBA builders and every archive and file factory. Tests that need a real client
+  install read `DALIB_CLIENT_DIR` and skip when it is absent, so CI commits no binary
+  assets and reproduces locally.
+- **Bumped `vitest` to 4.x**, which clears four advisories (one critical, one high, two
+  moderate) that came in through the 1.x tree. All are development dependencies.
+
 ## [2.2.0] - 2026-07-18
 
 Acts on the upstream findings in Taliesin's `dalib-findings.md`, plus a batch of
@@ -131,3 +149,11 @@ Verification release exercising the npm trusted-publishing OIDC path end-to-end.
 ## [1.0.0] - 2026-04-10
 
 Initial public release of `@eriscorp/dalib-ts` on npmjs.org. TypeScript port of the Dark Ages game-asset library covering DAT/MAP/SPF/EPF/MPF/HPF/EFA/HEA/FNT/Tileset parsing and rendering.
+
+<!-- Version 2.1.0 has no entry: it was prepared but never tagged or published. -->
+
+[Unreleased]: https://github.com/eriscorp/dalib-ts/compare/v2.2.0...HEAD
+[2.2.0]: https://github.com/eriscorp/dalib-ts/compare/v2.0.0...v2.2.0
+[2.0.0]: https://github.com/eriscorp/dalib-ts/compare/v1.0.1...v2.0.0
+[1.0.1]: https://github.com/eriscorp/dalib-ts/compare/v1.0.0...v1.0.1
+[1.0.0]: https://github.com/eriscorp/dalib-ts/releases/tag/v1.0.0
