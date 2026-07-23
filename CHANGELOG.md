@@ -33,10 +33,18 @@ documentation, validated against a real 7.41 client install.
   now draws palette index 0 opaque and masks everything outside the isometric diamond to
   transparent. Verified against `TILEA.BMP`: ~417k index-0 pixels across 1,143 tiles and
   1,100 stray padding bytes across 65 tiles were affected.
-- **SPF frames ignored `left`/`top` and `pitch`.** Both the colorized decode in `SpfFile`
-  and the palettized `renderSpfPalettized` path now use `right - left` / `bottom - top`
-  for dimensions and advance rows by the frame's pitch. Affected 190 (offset) + 78 (pitch)
-  of 982 real frames.
+- **SPF frames ignored `left`/`top` and `pitch`.** The colorized decode in `SpfFile`, the
+  colorized decode in `SpfView`, the colorized writer, and the palettized
+  `renderSpfPalettized` path all now use `right - left` / `bottom - top` for dimensions
+  and advance rows by the frame's pitch. Affected 190 (offset) + 78 (pitch) of 982 real
+  frames. Before this, serializing a frame that had just been read threw a `TypeError`,
+  and `SpfView` threw a `RangeError` or returned different pixels than `SpfFile` for the
+  same bytes.
+- **The colorized SPF writer recorded a byte count it did not write.** `startAddress`
+  advanced by the source frame's `byteCount`, which includes row padding, while the
+  payload written is tightly packed. Every frame after the first therefore pointed into
+  the wrong place. The writer now normalizes `byteWidth`, `byteCount` and
+  `imageByteCount` to describe the bytes it emits.
 - **SPF mode bytes were read as one `uint32`.** They are two `u8`s (`pixelMode` at +0x08,
   `paletteMode` at +0x09) followed by two preserved bytes; the embedded palette block is
   gated on both being zero. New `SpfFile.paletteMode` / `reservedModeBytes` fields;

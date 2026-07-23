@@ -291,6 +291,141 @@ describe('SpfFile', () => {
     });
   });
 
+  // Real colorized art is not anchored at the origin and is not always tightly
+  // packed: of 982 frames in the client, 190 have a non-zero left/top and 78 have a
+  // pitch that differs from the row width. Every fixture built by
+  // `fromColorizedRgbaFrames` has left = top = 0 and byteWidth = width * 2, which is
+  // exactly the case where a bounds bug and an origin bug cancel out — so these
+  // fixtures are hand-built to keep the two apart.
+  describe('offset and padded colorized frames', () => {
+    interface OffsetSpec {
+      left: number; top: number; right: number; bottom: number;
+      /** Extra bytes per row beyond width * 2. */
+      padding?: number;
+    }
+
+    /** Build a one-frame colorized SPF whose rows carry `padding` trailing bytes. */
+    function offsetColorizedSpf({ left, top, right, bottom, padding = 0 }: OffsetSpec): Uint8Array {
+      const w = right - left;
+      const h = bottom - top;
+      const stride = w * 2 + padding;
+      const byteCount = stride * h;
+
+      const writer = new SpanWriter();
+      writer.writeUInt32LE(0);
+      writer.writeUInt32LE(0);
+      writer.writeUInt8(2); // format = Colorized
+      writer.writeUInt8(0);
+      writer.writeUInt8(0);
+      writer.writeUInt8(0);
+      writer.writeUInt32LE(1); // frameCount
+
+      writer.writeUInt16LE(left);
+      writer.writeUInt16LE(top);
+      writer.writeUInt16LE(right);
+      writer.writeUInt16LE(bottom);
+      writer.writeInt16LE(0);
+      writer.writeInt16LE(0);
+      writer.writeUInt32LE(0);
+      writer.writeUInt32LE(0);          // startAddress
+      writer.writeUInt32LE(stride);     // byteWidth — the pitch
+      writer.writeUInt32LE(byteCount);
+      writer.writeUInt32LE(w * h);
+      writer.writeUInt32LE(byteCount);
+
+      // Each row is a distinct color, then `padding` bytes of filler. If a reader
+      // ignores the pitch it lands in the filler and decodes the wrong row.
+      const rowColors = [
+        { r: 255, g: 0, b: 0, a: 255 },
+        { r: 0, g: 255, b: 0, a: 255 },
+        { r: 0, g: 0, b: 255, a: 255 },
+        { r: 255, g: 255, b: 0, a: 255 },
+      ];
+      for (let y = 0; y < h; y++) {
+        const color = rowColors[y % rowColors.length]!;
+        for (let x = 0; x < w; x++) writer.writeUInt16LE(encodeRgb565(color));
+        for (let p = 0; p < padding; p++) writer.writeUInt8(0);
+      }
+
+      return writer.toUint8Array();
+    }
+
+    const OFFSET: OffsetSpec = { left: 2, top: 1, right: 6, bottom: 4, padding: 4 };
+
+    it('sizes colorData from the bounds, not from right and bottom', () => {
+      const frame = SpfFile.fromBuffer(offsetColorizedSpf(OFFSET)).frames[0]!;
+      expect(frame.colorData).toHaveLength((6 - 2) * (4 - 1));
+    });
+
+    it('reads each row at its own pitch', () => {
+      const frame = SpfFile.fromBuffer(offsetColorizedSpf(OFFSET)).frames[0]!;
+      const w = 6 - 2;
+      // Row 0 red, row 1 green, row 2 blue. Ignoring the pitch would put row 1 inside
+      // row 0's padding and decode it as black.
+      expect(frame.colorData![0]!.r).toBeGreaterThan(240);
+      expect(frame.colorData![w]!.g).toBeGreaterThan(240);
+      expect(frame.colorData![2 * w]!.b).toBeGreaterThan(240);
+    });
+
+    // Regression: the writer used right/bottom as the size while the reader used the
+    // bounds, so serializing a frame the reader had just produced ran off the end of
+    // colorData and threw.
+    it('serializes a frame it just read, without running off the end', () => {
+      const spf = SpfFile.fromBuffer(offsetColorizedSpf(OFFSET));
+      expect(() => spf.toUint8Array()).not.toThrow();
+    });
+
+    it('round-trips an offset padded frame back to the same pixels', () => {
+      const original = SpfFile.fromBuffer(offsetColorizedSpf(OFFSET));
+      const reparsed = SpfFile.fromBuffer(original.toUint8Array());
+      const before = original.frames[0]!;
+      const after = reparsed.frames[0]!;
+
+      expect(after.left).toBe(2);
+      expect(after.top).toBe(1);
+      expect(after.colorData).toHaveLength(before.colorData!.length);
+      expect(after.colorData).toEqual(before.colorData);
+    });
+
+    // The writer emits tightly packed rows, so the pitch and the byte counts it
+    // records must describe what it actually wrote. If they still described the
+    // source file's padded rows, the next frame's startAddress would be wrong.
+    it('normalizes the pitch and byte counts to the bytes it writes', () => {
+      const spf = SpfFile.fromBuffer(offsetColorizedSpf(OFFSET));
+      spf.toUint8Array();
+      const frame = spf.frames[0]!;
+      const w = 6 - 2;
+      const h = 4 - 1;
+
+      expect(frame.byteWidth).toBe(w * 2);
+      expect(frame.imageByteCount).toBe(w * h);
+      expect(frame.byteCount).toBe(w * h * 4);
+    });
+
+    it('keeps every frame addressable when several are written', () => {
+      const spf = SpfFile.fromBuffer(offsetColorizedSpf(OFFSET));
+      // A second frame with different bounds, sharing the first frame's pixels.
+      spf.frames.push({
+        ...spf.frames[0]!,
+        left: 0, top: 0, right: 4, bottom: 3,
+        colorData: spf.frames[0]!.colorData,
+      });
+
+      const reparsed = SpfFile.fromBuffer(spf.toUint8Array());
+      expect(reparsed.frames).toHaveLength(2);
+      // Frame 1 starts exactly where frame 0 ends.
+      expect(reparsed.frames[1]!.startAddress).toBe(reparsed.frames[0]!.byteCount);
+      expect(reparsed.frames[1]!.colorData![0]!.r).toBeGreaterThan(240);
+    });
+
+    it('pads with transparent when a row is truncated', () => {
+      const frame = SpfFile.fromBuffer(
+        offsetColorizedSpf({ left: 0, top: 0, right: 4, bottom: 2, padding: 0 }),
+      ).frames[0]!;
+      expect(frame.colorData).toHaveLength(8);
+    });
+  });
+
   describe('mode bytes', () => {
     it('rejects an unknown pixel mode', () => {
       const writer = new SpanWriter();

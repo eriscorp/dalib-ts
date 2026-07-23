@@ -1,4 +1,6 @@
 import { SpfFormatType } from '../../enums.js';
+import type { Color } from '../../constants.js';
+import { TRANSPARENT } from '../../constants.js';
 import type { DataArchive } from '../../data/DataArchive.js';
 import type { DataArchiveEntry } from '../../data/DataArchiveEntry.js';
 import { SpanReader } from '../../io/SpanReader.js';
@@ -64,13 +66,24 @@ export class SpfView {
     if (this.format === SpfFormatType.Palettized) {
       frame.data = new Uint8Array(buf.subarray(dataStart, dataStart + t.byteCount));
     } else {
-      // Colorized: read RGB565 color words
-      const colorData = [];
-      const reader = new SpanReader(buf);
-      reader.seek(dataStart);
-      const pixelCount = t.bottom * t.right;
-      for (let i = 0; i < pixelCount; i++) {
-        colorData.push(decodeRgb565(reader.readUInt16LE()));
+      // Colorized: RGB565 color words. This must match SpfFile.readColorized exactly —
+      // the bounds give the visible rectangle, and rows advance by the frame's own
+      // pitch, which is not always the row's byte width.
+      const w = t.right - t.left;
+      const h = t.bottom - t.top;
+      const stride = t.byteWidth > 0 ? t.byteWidth : w * 2;
+      const pixels = buf.subarray(dataStart, dataStart + t.byteCount);
+
+      const colorData = new Array<Color>(w * h);
+      for (let y = 0; y < h; y++) {
+        const rowOffset = y * stride;
+        for (let x = 0; x < w; x++) {
+          const at = rowOffset + x * 2;
+          colorData[y * w + x] =
+            at + 1 < pixels.length
+              ? decodeRgb565(pixels[at]! | (pixels[at + 1]! << 8))
+              : TRANSPARENT;
+        }
       }
       frame.colorData = colorData;
     }
