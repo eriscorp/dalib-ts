@@ -108,6 +108,70 @@ describe('EpfFile', () => {
     const copy = new Uint8Array(bytes);
     expect(EpfFile.fromBuffer(copy.buffer as ArrayBuffer).frames).toHaveLength(2);
   });
+
+  it('reads from an entry, with or without the extension', () => {
+    const archive = buildArchive([{ name: 'item001.epf', data: buildTwoFrameEpf().toUint8Array() }]);
+    expect(EpfFile.fromEntry(archive.get('item001.epf')!).frames).toHaveLength(2);
+    expect(EpfFile.fromArchive('item001', archive).frames).toHaveLength(2);
+    expect(EpfFile.fromArchive('item001.epf', archive).frames).toHaveLength(2);
+  });
+
+  it('throws when the entry is missing', () => {
+    expect(() => EpfFile.fromArchive('nope', buildArchive([]))).toThrow(/not found/);
+  });
+
+  describe('fromRgbaFrames', () => {
+    /** An RGBA frame with one opaque pixel at (x, y); everything else transparent. */
+    function dot(width: number, height: number, x: number, y: number, r: number, g: number, b: number): RgbaFrame {
+      const data = new Uint8ClampedArray(width * height * 4);
+      const o = (y * width + x) * 4;
+      data[o] = r; data[o + 1] = g; data[o + 2] = b; data[o + 3] = 255;
+      return { width, height, data };
+    }
+
+    it('sets the sprite size from the largest source frame', () => {
+      const { entity } = EpfFile.fromRgbaFrames([dot(8, 6, 0, 0, 1, 1, 1), dot(4, 10, 0, 0, 1, 1, 1)]);
+      expect(entity.pixelWidth).toBe(8);
+      expect(entity.pixelHeight).toBe(10);
+    });
+
+    it('crops each frame to its ink and makes the crop offset the anchor', () => {
+      const { entity } = EpfFile.fromRgbaFrames([dot(8, 6, 3, 2, 255, 0, 0)]);
+      expect(entity.frames[0]).toMatchObject({ left: 3, top: 2, right: 4, bottom: 3 });
+      expect(entity.frames[0]!.data).toHaveLength(1);
+    });
+
+    it('quantizes every frame against one shared palette', () => {
+      const { entity, palette } = EpfFile.fromRgbaFrames([
+        dot(4, 4, 0, 0, 255, 0, 0),
+        dot(4, 4, 0, 0, 0, 0, 255),
+      ]);
+      expect(entity.frames).toHaveLength(2);
+      expect(palette.length).toBe(256);
+      expect(entity.frames[0]!.data[0]).not.toBe(entity.frames[1]!.data[0]);
+    });
+
+    it('drops a fully transparent frame, which crops to zero area', () => {
+      const blank: RgbaFrame = { width: 4, height: 4, data: new Uint8ClampedArray(4 * 4 * 4) };
+      const { entity } = EpfFile.fromRgbaFrames([blank, dot(4, 4, 1, 1, 9, 9, 9)]);
+      expect(entity.frames).toHaveLength(1);
+      expect(entity.frames[0]!.left).toBe(1);
+    });
+
+    it('round-trips the built file back through the parser', () => {
+      const { entity } = EpfFile.fromRgbaFrames([dot(4, 4, 1, 1, 200, 100, 50)]);
+      const reparsed = EpfFile.fromBuffer(entity.toUint8Array());
+      expect(reparsed.pixelWidth).toBe(4);
+      expect(reparsed.frames).toHaveLength(1);
+      expect(Array.from(reparsed.frames[0]!.data)).toEqual(Array.from(entity.frames[0]!.data));
+    });
+
+    it('handles an empty frame list', () => {
+      const { entity } = EpfFile.fromRgbaFrames([]);
+      expect(entity.frames).toHaveLength(0);
+      expect(entity.pixelWidth).toBe(0);
+    });
+  });
 });
 
 describe('Tileset', () => {

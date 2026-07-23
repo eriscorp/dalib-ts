@@ -5,6 +5,7 @@ import {
   preserveNonTransparentBlacks,
   quantizeFrames,
 } from '../src/utility/ImageProcessor.js';
+import { drawFrame } from '../src/helpers/imageData.js';
 import { mpfFrameHeight, mpfFrameWidth } from '../src/drawing/MpfFrame.js';
 import { spfFrameHeight, spfFrameWidth } from '../src/drawing/SpfFrame.js';
 import { epfFrameHeight, epfFrameWidth } from '../src/drawing/EpfFrame.js';
@@ -145,10 +146,12 @@ describe('frame dimension helpers', () => {
   });
 });
 
-describe('toImageData', () => {
-  // ImageData is a browser global. Node exposes it only in some builds, so this
-  // suite runs against a minimal stand-in when it is absent.
-  it('copies the frame into an ImageData-shaped object', () => {
+describe('browser canvas helpers', () => {
+  /**
+   * ImageData is a browser global. Node exposes it only in some builds, so run
+   * the body against a minimal stand-in when it is absent and restore after.
+   */
+  function withImageData(body: () => void): void {
     const original = (globalThis as Record<string, unknown>).ImageData;
     if (original === undefined) {
       (globalThis as Record<string, unknown>).ImageData = class {
@@ -164,6 +167,14 @@ describe('toImageData', () => {
     }
 
     try {
+      body();
+    } finally {
+      if (original === undefined) delete (globalThis as Record<string, unknown>).ImageData;
+    }
+  }
+
+  it('toImageData copies the frame into an ImageData-shaped object', () => {
+    withImageData(() => {
       const frame = frameOf(2, 1, () => [1, 2, 3, 255]);
       const imageData = toImageData(frame);
       expect(imageData.width).toBe(2);
@@ -171,8 +182,26 @@ describe('toImageData', () => {
       expect(imageData.data[0]).toBe(1);
       // The data is copied, not shared with the source frame.
       expect(imageData.data).not.toBe(frame.data);
-    } finally {
-      if (original === undefined) delete (globalThis as Record<string, unknown>).ImageData;
-    }
+    });
+  });
+
+  it('drawFrame hands the converted frame to putImageData at the given offset', () => {
+    withImageData(() => {
+      const calls: Array<{ width: number; height: number; dx: number; dy: number }> = [];
+      const ctx = {
+        putImageData(image: ImageData, dx: number, dy: number) {
+          calls.push({ width: image.width, height: image.height, dx, dy });
+        },
+      } as unknown as CanvasRenderingContext2D;
+
+      const frame = frameOf(3, 2, () => [1, 2, 3, 255]);
+      drawFrame(ctx, frame, 5, 7);
+      drawFrame(ctx, frame); // offsets default to the origin
+
+      expect(calls).toEqual([
+        { width: 3, height: 2, dx: 5, dy: 7 },
+        { width: 3, height: 2, dx: 0, dy: 0 },
+      ]);
+    });
   });
 });

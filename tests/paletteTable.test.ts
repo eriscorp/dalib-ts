@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { buildArchive } from './archiveFixture.js';
 import { KhanPalOverrideType } from '../src/enums.js';
 import { PaletteTable } from '../src/drawing/PaletteTable.js';
 
@@ -144,5 +145,104 @@ describe('PaletteTable serialization', () => {
     const table = new PaletteTable();
     table.add(1, 2);
     expect(table.toUint8Array().length).toBeGreaterThan(0);
+  });
+
+  it('sorts sex overrides by id', () => {
+    const table = new PaletteTable();
+    table.add(9, 1, KhanPalOverrideType.Male);
+    table.add(2, 2, KhanPalOverrideType.Male);
+    table.add(9, 3, KhanPalOverrideType.Female);
+    table.add(2, 4, KhanPalOverrideType.Female);
+
+    const lines = table.toText().trimEnd().split('\n');
+    expect(lines.indexOf('2 2 -1')).toBeLessThan(lines.indexOf('9 1 -1'));
+    expect(lines.indexOf('2 4 -2')).toBeLessThan(lines.indexOf('9 3 -2'));
+  });
+});
+
+describe('PaletteTable parse edge cases', () => {
+  it('skips a line whose third token is not a number', () => {
+    const table = parse('1 2 abc\n5 7\n');
+    expect(table.getPaletteNumber(1)).toBe(0);
+    expect(table.getPaletteNumber(5)).toBe(7);
+  });
+
+  it('falls through to the general table when no override matches', () => {
+    const table = parse('1 3 9\n');
+    expect(table.getPaletteNumber(2, KhanPalOverrideType.Female)).toBe(9);
+  });
+});
+
+describe('PaletteTable archive loading', () => {
+  const enc = (s: string) => new TextEncoder().encode(s);
+
+  it('reads a single table from an entry', () => {
+    const archive = buildArchive([{ name: 'mptpal.tbl', data: enc('1 4 7\n') }]);
+    expect(PaletteTable.fromEntry(archive.get('mptpal.tbl')!).getPaletteNumber(2)).toBe(7);
+  });
+
+  it('merges every non-numeric table that matches the pattern', () => {
+    const archive = buildArchive([
+      { name: 'mptpal.tbl', data: enc('1 4 7\n') },
+      { name: 'mptpalx.tbl', data: enc('20 3\n') },
+      { name: 'other.tbl', data: enc('50 9\n') },
+    ]);
+
+    const table = PaletteTable.fromArchive('mptpal', archive);
+    expect(table.getPaletteNumber(2)).toBe(7);
+    expect(table.getPaletteNumber(20)).toBe(3);
+    // A table outside the pattern must not be merged in.
+    expect(table.getPaletteNumber(50)).toBe(0);
+  });
+
+  // A numbered file in the same family is a cycling definition, not a mapping
+  // table: "mpt001.tbl" holds the cycling ranges for palette 1.
+  it('reads a numbered file as cycling entries for that palette', () => {
+    const archive = buildArchive([
+      { name: 'mptpal.tbl', data: enc('1 4 7\n') },
+      { name: 'mpt001.tbl', data: enc('10 20 300\n30 40 500\n') },
+    ]);
+
+    const table = PaletteTable.fromArchive('mpt', archive);
+    const cycling = table.getCyclingEntries(1);
+    expect(cycling).toHaveLength(2);
+    expect(cycling![0]).toEqual({ startIndex: 10, endIndex: 20, period: 300 });
+    expect(cycling![1]).toEqual({ startIndex: 30, endIndex: 40, period: 500 });
+    // The mapping table in the same pattern is still merged.
+    expect(table.getPaletteNumber(2)).toBe(7);
+  });
+
+  it('ignores blank, short and non-numeric cycling lines', () => {
+    const archive = buildArchive([
+      { name: 'mpt002.tbl', data: enc('\n1 2\n1 2 3 4\na b c\n5 6 7\n') },
+    ]);
+    const cycling = PaletteTable.fromArchive('mpt', archive).getCyclingEntries(2);
+    expect(cycling).toEqual([{ startIndex: 5, endIndex: 6, period: 7 }]);
+  });
+
+  it('records nothing for a numbered file with no valid cycling lines', () => {
+    const archive = buildArchive([{ name: 'mpt003.tbl', data: enc('garbage\n') }]);
+    expect(PaletteTable.fromArchive('mpt', archive).getCyclingEntries(3)).toBeUndefined();
+  });
+
+  it('returns an empty table when nothing matches the pattern', () => {
+    const table = PaletteTable.fromArchive('nothing', buildArchive([]));
+    expect(table.getPaletteNumber(1)).toBe(0);
+  });
+
+  it('merge carries every override kind and the cycling entries', () => {
+    const base = new PaletteTable();
+    const other = parse('1 4 7\n');
+    other.add(2, 20, KhanPalOverrideType.Male);
+    other.add(3, 30, KhanPalOverrideType.Female);
+    other.add(4, 40);
+    other.cyclingEntries.set(9, [{ startIndex: 0, endIndex: 1, period: 100 }]);
+
+    base.merge(other);
+    expect(base.getPaletteNumber(2, KhanPalOverrideType.Male)).toBe(20);
+    expect(base.getPaletteNumber(3, KhanPalOverrideType.Female)).toBe(30);
+    expect(base.getPaletteNumber(4)).toBe(40);
+    expect(base.getPaletteNumber(1)).toBe(7);
+    expect(base.getCyclingEntries(9)).toHaveLength(1);
   });
 });

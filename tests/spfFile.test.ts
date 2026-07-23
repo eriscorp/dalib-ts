@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { buildArchive } from './archiveFixture.js';
+import type { RgbaFrame } from '../src/constants.js';
 import { SpfFile, SpfFormatType } from '../src/drawing/SpfFile.js';
 import { Palette } from '../src/drawing/Palette.js';
 import { encodeRgb565, encodeRgb555 } from '../src/utility/ColorCodec.js';
@@ -201,6 +203,227 @@ describe('SpfFile', () => {
       expect(color.r).toBeGreaterThan(240);
       expect(color.g).toBeLessThan(10);
       expect(color.b).toBeLessThan(10);
+    });
+
+    it('round-trips through toUint8Array', () => {
+      const original = SpfFile.fromBuffer(buildColorizedSpf(2, 2));
+      const reparsed = SpfFile.fromBuffer(original.toUint8Array());
+
+      expect(reparsed.format).toBe(SpfFormatType.Colorized);
+      expect(reparsed.frames).toHaveLength(1);
+      expect(reparsed.frames[0]!.colorData).toHaveLength(4);
+      expect(reparsed.frames[0]!.colorData![0]!.r).toBeGreaterThan(240);
+    });
+
+    // A frame's rows advance by its own pitch, which is not always the row width.
+    // 190 of the client's 982 colorized frames have a non-zero origin and 78 have a
+    // pitch that differs from the width, so both must be read from the header.
+    it('advances rows by the frame pitch, not the row width', () => {
+      const width = 2, height = 2;
+      const stride = 8; // four pixels' worth of bytes per row for a two-pixel row
+      const writer = new SpanWriter();
+      writer.writeUInt32LE(0);
+      writer.writeUInt32LE(0);
+      writer.writeUInt8(2); // format = Colorized
+      writer.writeUInt8(0);
+      writer.writeUInt8(0);
+      writer.writeUInt8(0);
+      writer.writeUInt32LE(1); // frameCount
+
+      const byteCount = stride * height;
+      writer.writeUInt16LE(0); writer.writeUInt16LE(0);
+      writer.writeUInt16LE(width); writer.writeUInt16LE(height);
+      writer.writeInt16LE(0); writer.writeInt16LE(0);
+      writer.writeUInt32LE(0);
+      writer.writeUInt32LE(0);          // startAddress
+      writer.writeUInt32LE(stride);     // byteWidth — the pitch
+      writer.writeUInt32LE(byteCount);
+      writer.writeUInt32LE(width * height);
+      writer.writeUInt32LE(byteCount);
+
+      // Row 0: red, red, then two bytes of padding. Row 1: blue, blue, padding.
+      const red = encodeRgb565({ r: 255, g: 0, b: 0, a: 255 });
+      const blue = encodeRgb565({ r: 0, g: 0, b: 255, a: 255 });
+      writer.writeUInt16LE(red); writer.writeUInt16LE(red);
+      writer.writeUInt16LE(0); writer.writeUInt16LE(0);
+      writer.writeUInt16LE(blue); writer.writeUInt16LE(blue);
+      writer.writeUInt16LE(0); writer.writeUInt16LE(0);
+
+      const frame = SpfFile.fromBuffer(writer.toUint8Array()).frames[0]!;
+      // Without the pitch, row 1 would start inside row 0's padding and read black.
+      expect(frame.colorData![0]!.r).toBeGreaterThan(240);
+      expect(frame.colorData![2]!.b).toBeGreaterThan(240);
+      expect(frame.colorData![2]!.r).toBe(0);
+    });
+
+    it('falls back to the row width when the frame declares no pitch', () => {
+      const buf = buildColorizedSpf(2, 1);
+      const bytes = new Uint8Array(buf);
+      // Zero the byteWidth field of the single frame header.
+      const view = new DataView(bytes.buffer);
+      view.setUint32(12 + 4 + 16 + 4, 0, true);
+
+      const frame = SpfFile.fromBuffer(bytes).frames[0]!;
+      expect(frame.colorData).toHaveLength(2);
+      expect(frame.colorData![0]!.r).toBeGreaterThan(240);
+    });
+
+    it('pads with transparent when the pixel data runs out', () => {
+      // Claim a 4x1 frame but supply only one pixel's worth of data.
+      const writer = new SpanWriter();
+      writer.writeUInt32LE(0); writer.writeUInt32LE(0);
+      writer.writeUInt8(2); writer.writeUInt8(0); writer.writeUInt8(0); writer.writeUInt8(0);
+      writer.writeUInt32LE(1);
+      writer.writeUInt16LE(0); writer.writeUInt16LE(0);
+      writer.writeUInt16LE(4); writer.writeUInt16LE(1);
+      writer.writeInt16LE(0); writer.writeInt16LE(0);
+      writer.writeUInt32LE(0);
+      writer.writeUInt32LE(0);
+      writer.writeUInt32LE(8);
+      writer.writeUInt32LE(2); // byteCount — only one pixel present
+      writer.writeUInt32LE(4);
+      writer.writeUInt32LE(2);
+      writer.writeUInt16LE(encodeRgb565({ r: 255, g: 0, b: 0, a: 255 }));
+
+      const frame = SpfFile.fromBuffer(writer.toUint8Array()).frames[0]!;
+      expect(frame.colorData![0]!.r).toBeGreaterThan(240);
+      expect(frame.colorData![3]!.a).toBe(0);
+    });
+  });
+
+  describe('mode bytes', () => {
+    it('rejects an unknown pixel mode', () => {
+      const writer = new SpanWriter();
+      writer.writeUInt32LE(0); writer.writeUInt32LE(0);
+      writer.writeUInt8(9); // not Palettized (0) or Colorized (2)
+      writer.writeUInt8(0); writer.writeUInt8(0); writer.writeUInt8(0);
+      expect(() => SpfFile.fromBuffer(writer.toUint8Array())).toThrow(/Unsupported SPF pixel mode/);
+    });
+
+    it('rejects a palettized file whose palette mode byte is set', () => {
+      // The embedded 0x400 palette block is only present when both mode bytes are
+      // zero; a non-zero palette mode means a layout this parser does not know.
+      const writer = new SpanWriter();
+      writer.writeUInt32LE(0); writer.writeUInt32LE(0);
+      writer.writeUInt8(0); // Palettized
+      writer.writeUInt8(1); // palette mode set
+      writer.writeUInt8(0); writer.writeUInt8(0);
+      expect(() => SpfFile.fromBuffer(writer.toUint8Array())).toThrow(/Unsupported SPF palette mode/);
+    });
+
+    it('preserves the two reserved bytes at +0x0A across a round trip', () => {
+      const buf = buildColorizedSpf(1, 1);
+      buf[10] = 0xab;
+      buf[11] = 0xcd;
+
+      const spf = SpfFile.fromBuffer(buf);
+      expect(Array.from(spf.reservedModeBytes)).toEqual([0xab, 0xcd]);
+      expect(Array.from(SpfFile.fromBuffer(spf.toUint8Array()).reservedModeBytes)).toEqual([0xab, 0xcd]);
+    });
+
+    it('writes zeros when the reserved bytes are absent', () => {
+      const spf = new SpfFile(SpfFormatType.Colorized);
+      spf.reservedModeBytes = new Uint8Array(0);
+      const bytes = spf.toUint8Array();
+      expect(bytes[10]).toBe(0);
+      expect(bytes[11]).toBe(0);
+    });
+  });
+
+  describe('factories', () => {
+    it('accepts an ArrayBuffer', () => {
+      const bytes = new Uint8Array(buildColorizedSpf(1, 1));
+      expect(SpfFile.fromBuffer(bytes.buffer as ArrayBuffer).frames).toHaveLength(1);
+    });
+
+    it('reads from an entry, with or without the extension', () => {
+      const archive = buildArchive([{ name: 'art.spf', data: buildColorizedSpf(2, 2) }]);
+      expect(SpfFile.fromEntry(archive.get('art.spf')!).frames).toHaveLength(1);
+      expect(SpfFile.fromArchive('art', archive).frames).toHaveLength(1);
+      expect(SpfFile.fromArchive('art.spf', archive).frames).toHaveLength(1);
+    });
+
+    it('throws when the entry is missing', () => {
+      expect(() => SpfFile.fromArchive('nope', buildArchive([]))).toThrow(/not found/);
+    });
+  });
+
+  describe('fromColorizedRgbaFrames', () => {
+    /** A single-row RGBA frame from a list of pixels. */
+    function row(pixels: Array<[number, number, number, number]>): RgbaFrame {
+      const data = new Uint8ClampedArray(pixels.length * 4);
+      pixels.forEach(([r, g, b, a], i) => {
+        data[i * 4] = r; data[i * 4 + 1] = g; data[i * 4 + 2] = b; data[i * 4 + 3] = a;
+      });
+      return { width: pixels.length, height: 1, data };
+    }
+
+    it('stores direct color and sizes the frame from the source', () => {
+      const spf = SpfFile.fromColorizedRgbaFrames([row([[255, 0, 0, 255], [0, 255, 0, 255]])]);
+      expect(spf.format).toBe(SpfFormatType.Colorized);
+      expect(spf.frames).toHaveLength(1);
+      expect(spf.frames[0]!.right).toBe(2);
+      expect(spf.frames[0]!.bottom).toBe(1);
+      expect(spf.frames[0]!.colorData![0]).toEqual({ r: 255, g: 0, b: 0, a: 255 });
+    });
+
+    it('stores a transparent pixel as opaque black, the color key', () => {
+      const spf = SpfFile.fromColorizedRgbaFrames([row([[200, 100, 50, 0]])]);
+      expect(spf.frames[0]!.colorData![0]).toEqual({ r: 0, g: 0, b: 0, a: 255 });
+    });
+
+    it('reserves room for both the RGB565 and the RGB555 copy', () => {
+      const spf = SpfFile.fromColorizedRgbaFrames([row([[1, 2, 3, 255], [4, 5, 6, 255]])]);
+      expect(spf.frames[0]!.byteCount).toBe(2 * 1 * 4);
+      expect(spf.frames[0]!.imageByteCount).toBe(2);
+      expect(spf.frames[0]!.byteWidth).toBe(2 * 2);
+    });
+
+    it('round-trips back through the parser', () => {
+      const spf = SpfFile.fromColorizedRgbaFrames([row([[255, 0, 0, 255], [0, 0, 255, 255]])]);
+      const reparsed = SpfFile.fromBuffer(spf.toUint8Array());
+      expect(reparsed.frames).toHaveLength(1);
+      expect(reparsed.frames[0]!.colorData![0]!.r).toBeGreaterThan(240);
+      expect(reparsed.frames[0]!.colorData![1]!.b).toBeGreaterThan(240);
+    });
+
+    it('handles an empty frame list', () => {
+      expect(SpfFile.fromColorizedRgbaFrames([]).frames).toHaveLength(0);
+    });
+  });
+
+  describe('fromPalettizedRgbaFrames', () => {
+    function solid(w: number, h: number, r: number, g: number, b: number): RgbaFrame {
+      const data = new Uint8ClampedArray(w * h * 4);
+      for (let i = 0; i < w * h; i++) {
+        data[i * 4] = r; data[i * 4 + 1] = g; data[i * 4 + 2] = b; data[i * 4 + 3] = 255;
+      }
+      return { width: w, height: h, data };
+    }
+
+    it('quantizes every frame against one shared palette', () => {
+      const spf = SpfFile.fromPalettizedRgbaFrames([solid(2, 2, 255, 0, 0), solid(2, 2, 0, 0, 255)]);
+      expect(spf.format).toBe(SpfFormatType.Palettized);
+      expect(spf.frames).toHaveLength(2);
+      expect(spf.primaryColors).toBe(spf.secondaryColors);
+      expect(spf.frames[0]!.data![0]).not.toBe(spf.frames[1]!.data![0]);
+    });
+
+    it('stores one byte per pixel', () => {
+      const spf = SpfFile.fromPalettizedRgbaFrames([solid(4, 3, 1, 2, 3)]);
+      expect(spf.frames[0]!.byteWidth).toBe(4);
+      expect(spf.frames[0]!.byteCount).toBe(12);
+      expect(spf.frames[0]!.data).toHaveLength(12);
+    });
+
+    it('round-trips back through the parser', () => {
+      const spf = SpfFile.fromPalettizedRgbaFrames([solid(2, 2, 200, 100, 50)]);
+      const reparsed = SpfFile.fromBuffer(spf.toUint8Array());
+      expect(Array.from(reparsed.frames[0]!.data!)).toEqual(Array.from(spf.frames[0]!.data!));
+    });
+
+    it('handles an empty frame list', () => {
+      expect(SpfFile.fromPalettizedRgbaFrames([]).frames).toHaveLength(0);
     });
   });
 });
