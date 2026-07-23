@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { buildArchive } from './archiveFixture.js';
+import type { RgbaFrame } from '../src/constants.js';
 import { HPF_TILE_WIDTH, TILE_HEIGHT, TILE_SIZE, TILE_WIDTH } from '../src/constants.js';
 import { HpfFile } from '../src/drawing/HpfFile.js';
 import { EpfFile } from '../src/drawing/EpfFile.js';
@@ -141,6 +143,58 @@ describe('Tileset', () => {
   it('accepts an ArrayBuffer', () => {
     const bytes = tilesetBytes(1);
     expect(Tileset.fromBuffer(bytes.buffer as ArrayBuffer).length).toBe(1);
+  });
+
+  it('reads from an archive entry, with or without the extension', () => {
+    const archive = buildArchive([{ name: 'tilea.bmp', data: tilesetBytes(2) }]);
+    expect(Tileset.fromEntry(archive.get('tilea.bmp')!).length).toBe(2);
+    expect(Tileset.fromArchive('tilea', archive).length).toBe(2);
+    expect(Tileset.fromArchive('tilea.bmp', archive).length).toBe(2);
+  });
+
+  it('throws when the entry is missing', () => {
+    expect(() => Tileset.fromArchive('nope', buildArchive([]))).toThrow(/not found/);
+  });
+
+  describe('fromRgbaFrames', () => {
+    /** A solid ground-tile-sized RGBA frame. */
+    function groundFrame(r: number, g: number, b: number): RgbaFrame {
+      const data = new Uint8ClampedArray(TILE_WIDTH * TILE_HEIGHT * 4);
+      for (let i = 0; i < TILE_WIDTH * TILE_HEIGHT; i++) {
+        data[i * 4] = r; data[i * 4 + 1] = g; data[i * 4 + 2] = b; data[i * 4 + 3] = 255;
+      }
+      return { width: TILE_WIDTH, height: TILE_HEIGHT, data };
+    }
+
+    it('quantizes every frame against one shared palette', () => {
+      const { entity, palette } = Tileset.fromRgbaFrames([
+        groundFrame(255, 0, 0),
+        groundFrame(0, 0, 255),
+      ]);
+
+      expect(entity.length).toBe(2);
+      expect(palette.length).toBe(256);
+      // Distinct source colors must land on distinct palette indexes.
+      expect(entity.tiles[0]!.data[0]).not.toBe(entity.tiles[1]!.data[0]);
+    });
+
+    it('produces tiles of exactly TILE_SIZE, so the result serializes', () => {
+      const { entity } = Tileset.fromRgbaFrames([groundFrame(10, 20, 30)]);
+      expect(entity.tiles[0]!.data).toHaveLength(TILE_SIZE);
+      expect(entity.toUint8Array()).toHaveLength(TILE_SIZE);
+    });
+
+    it('round-trips the quantized indexes back through the parser', () => {
+      const { entity } = Tileset.fromRgbaFrames([groundFrame(200, 100, 50)]);
+      const reparsed = Tileset.fromBuffer(entity.toUint8Array());
+      expect(Array.from(reparsed.tiles[0]!.data)).toEqual(Array.from(entity.tiles[0]!.data));
+    });
+
+    it('handles an empty frame list', () => {
+      const { entity, palette } = Tileset.fromRgbaFrames([]);
+      expect(entity.length).toBe(0);
+      expect(palette.length).toBe(256);
+    });
   });
 });
 
