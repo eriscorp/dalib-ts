@@ -57,6 +57,42 @@ documentation, validated against a real 7.41 client install.
   appear on disk (the client subtracts 1); moving that adjustment into the library is a
   deferred, cross-repo breaking change.
 
+## [2.2.0] - 2026-07-18
+
+Acts on the upstream findings in Taliesin's `dalib-findings.md`, plus a batch of
+parser fixes. Version 2.1.0 was prepared but never tagged or published; the
+readers below first shipped in 2.2.0.
+
+### Added
+
+- **`PcxFile`** and **`renderPcx`** — 8-bit single-plane PCX with the embedded
+  256-color palette.
+- **`BikFile`** — Bink Video header reader. It reports the metadata (version,
+  dimensions, frame count, frame rate, audio track count). It does not decode video.
+- **`JpfFile`** — unwraps a `.jpf` entry by removing the 4-byte `"JPF\0"` prefix and
+  exposes the inner JPEG bytes.
+- **`FntFile.getGlyphPixels`** — returns a decoded one-byte-per-pixel buffer.
+- **`DataArchiveOptions`** (`{ newFormat?, onWarning? }`) on `DataArchive`. The
+  positional `newFormat` boolean still works.
+- **`finalXor` parameter on `crc32`** (default `true`). Set it to `false` to omit the
+  final inversion, which the Dark Ages wire checksums need.
+
+### Fixed
+
+- **`ColorTable` allocated without bound on a non-dye table.** `parseText` now clamps
+  the colors-per-entry header to 64 and stops at end of file instead of padding the
+  last entry with black. A large first line previously exhausted memory in Taliesin's
+  `.tbl` preview. An empty but present color line still decodes as transparent.
+- **The MPF variable-length "Unknown" header was read at a fixed size.** When flags
+  bit 2 is set, `MpfFile` and `MpfView` now read a `u32` count and then `count * 4`
+  bytes. The old fixed eight-byte read was correct only for a count of 1 and
+  mis-aligned every later field otherwise. Ports the C# DALib fix (issue #10).
+- **`DataArchive` rejected duplicate and empty entry names.** It now reports them
+  through `onWarning` instead of throwing, which is needed to open `album.dat` and
+  `WorldMap.dat` from the official client.
+- **The `FntFile` bit-order docstring said LSB-first.** The glyph data is MSB-first,
+  which is what `drawGlyph` already assumed.
+
 ## [2.0.0] - 2026-04-20
 
 Tracks upstream **eriscorp/dalib DALib 0.7.0** (PRs #13 and #14).
