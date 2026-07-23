@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { buildArchive } from './archiveFixture.js';
 import { COLORS_PER_PALETTE } from '../src/constants.js';
 import { KhanPalOverrideType } from '../src/enums.js';
 import { Palette } from '../src/drawing/Palette.js';
@@ -80,6 +81,40 @@ describe('PaletteLookup', () => {
       new PaletteLookup(new Map([[0, p]]), table('5 1000')).getPaletteForId(5);
       expect(p.get(0).a).toBe(255);
     });
+  });
+});
+
+describe('PaletteLookup archive factories', () => {
+  const enc = (s: string) => new TextEncoder().encode(s);
+
+  /** A 768-byte PAL whose index 1 is a recognisable color. */
+  function palBytes(r: number): Uint8Array {
+    const bytes = new Uint8Array(COLORS_PER_PALETTE * 3);
+    bytes[3] = r;
+    return bytes;
+  }
+
+  it('pairs the palettes and the table found under one pattern', () => {
+    // Entry names are a fixed 13-byte field, so keep the fixtures short.
+    const archive = buildArchive([
+      { name: 'itmpal.tbl', data: enc('1 4 7\n') },
+      { name: 'itmpal007.pal', data: palBytes(99) },
+    ]);
+
+    const lookup = PaletteLookup.fromArchive('itmpal', archive);
+    expect(lookup.getPaletteForId(2).get(1).r).toBe(99);
+  });
+
+  // Some families name the table and the palettes differently, so the two
+  // patterns are supplied separately.
+  it('accepts separate table and palette patterns', () => {
+    const archive = buildArchive([
+      { name: 'mptpal.tbl', data: enc('1 4 7\n') },
+      { name: 'mpt007.pal', data: palBytes(55) },
+    ]);
+
+    const lookup = PaletteLookup.fromArchivePatterns('mptpal', 'mpt0', archive);
+    expect(lookup.getPaletteForId(3).get(1).r).toBe(55);
   });
 });
 

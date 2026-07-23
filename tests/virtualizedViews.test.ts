@@ -122,4 +122,46 @@ describe('SpfView', () => {
   it('throws when the entry is missing', () => {
     expect(() => SpfView.fromArchive('nope', buildArchive([]))).toThrow(/not found/);
   });
+
+  describe('colorized', () => {
+    function colorizedSpf(): Uint8Array {
+      return SpfFile.fromColorizedRgbaFrames([
+        {
+          width: 2,
+          height: 2,
+          data: new Uint8ClampedArray([
+            255, 0, 0, 255, 0, 255, 0, 255,
+            0, 0, 255, 255, 255, 255, 255, 255,
+          ]),
+        },
+      ]).toUint8Array();
+    }
+
+    it('reads direct colors and carries no embedded palette', () => {
+      const view = SpfView.fromArchive('fx', buildArchive([{ name: 'fx.spf', data: colorizedSpf() }]));
+      expect(view.format).toBe(SpfFormatType.Colorized);
+      expect(view.primaryColors).toBeUndefined();
+      expect(view.count).toBe(1);
+    });
+
+    it('slices colors that match the eager parser', () => {
+      const bytes = colorizedSpf();
+      const view = SpfView.fromArchive('fx', buildArchive([{ name: 'fx.spf', data: bytes }]));
+      const eager = SpfFile.fromBuffer(bytes);
+
+      const frame = view.get(0);
+      expect(frame.colorData).toHaveLength(4);
+      expect(frame.data).toBeUndefined();
+      expect(frame.colorData![0]!.r).toBeGreaterThan(240);
+      expect(frame.colorData![0]).toEqual(eager.frames[0]!.colorData![0]);
+      expect(frame.colorData![2]!.b).toBeGreaterThan(240);
+    });
+
+    it('bounds-checks the frame index', () => {
+      const view = SpfView.fromArchive('fx', buildArchive([{ name: 'fx.spf', data: colorizedSpf() }]));
+      expect(() => view.get(1)).toThrow(RangeError);
+      expect(view.tryGet(1)).toBeUndefined();
+      expect(view.tryGet(0)).toBeDefined();
+    });
+  });
 });

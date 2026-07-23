@@ -326,4 +326,16 @@ describe('Node-only fromFile factories', () => {
       rmSync(packDir, { recursive: true, force: true });
     }
   });
+
+  it('DataArchive.compileFromDirectory rejects a name that will not fit the header field', () => {
+    // The name field is fixed width; a longer name would be silently truncated
+    // and collide with another entry.
+    const packDir = mkdtempSync(join(tmpdir(), 'dalib-pack-'));
+    try {
+      writeFileSync(join(packDir, 'a-very-long-entry-name.pal'), new Uint8Array(4));
+      expect(() => DataArchive.compileFromDirectory(packDir)).toThrow(/too long/);
+    } finally {
+      rmSync(packDir, { recursive: true, force: true });
+    }
+  });
 });

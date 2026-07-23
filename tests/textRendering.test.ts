@@ -82,6 +82,56 @@ describe('FNT text rendering (dormant format)', () => {
     drawGlyph(font, buffer, 8, 9999, 0, 0, WHITE);
     expect(buffer.every(v => v === 0)).toBe(true);
   });
+
+  it('leaves the background untouched where a glyph row is blank', () => {
+    // Only the first row of the first glyph is inked.
+    const data = new Uint8Array(94 * 12);
+    data[0] = 0xff;
+    const font = FntFile.fromBuffer(data, 8, 12);
+
+    const buffer = new Uint8ClampedArray(8 * 12 * 4);
+    drawGlyph(font, buffer, 8, 0, 0, 0, WHITE);
+
+    expect(buffer[3]).toBe(255);           // row 0 is drawn
+    expect(buffer[8 * 4 * 1 + 3]).toBe(0); // row 1 stays clear
+  });
+
+  it('draws only the set bits within a partially inked row', () => {
+    const data = new Uint8Array(94 * 12);
+    data[0] = 0b1000_0001; // leftmost and rightmost pixel of row 0
+    const font = FntFile.fromBuffer(data, 8, 12);
+
+    const buffer = new Uint8ClampedArray(8 * 12 * 4);
+    drawGlyph(font, buffer, 8, 0, 0, 0, WHITE);
+
+    expect(buffer[3]).toBe(255);       // x = 0
+    expect(buffer[1 * 4 + 3]).toBe(0); // x = 1
+    expect(buffer[7 * 4 + 3]).toBe(255); // x = 7
+  });
+
+  describe('getGlyphIndex for the non-English faces', () => {
+    // The Korean face is 2401 glyphs: 51 Jamo then the Hangul syllable block.
+    const koreanFnt = () => FntFile.fromBuffer(new Uint8Array(2401 * 12 * 2), 16, 12);
+
+    it('rejects ASCII in a Korean face', () => {
+      expect(getGlyphIndex(koreanFnt(), 'A')).toBe(-1);
+    });
+
+    // Node's TextEncoder ignores its label argument and always emits UTF-8, so no
+    // EUC-KR encoder is available and every multi-byte character resolves to -1.
+    // The lookup must degrade to that rather than throwing.
+    it('returns -1 for Hangul when no EUC-KR encoder is available', () => {
+      expect(getGlyphIndex(koreanFnt(), '가')).toBe(-1);
+    });
+
+    it('falls back to a direct ASCII offset for a face of an unknown size', () => {
+      const odd = FntFile.fromBuffer(new Uint8Array(50 * 12), 8, 12);
+      expect(getGlyphIndex(odd, '!')).toBe(0);
+      expect(getGlyphIndex(odd, 'A')).toBe(0x41 - 33);
+      // Past the end of the face.
+      expect(getGlyphIndex(odd, '~')).toBe(-1);
+    });
+  });
 });
 
 describe('LFT text rendering (active format)', () => {
@@ -178,6 +228,18 @@ describe('LFT text rendering (active format)', () => {
     it('returns an empty mask for an unknown key', () => {
       expect(FONT.getGlyphPixels(0xfffe).width).toBe(0);
     });
+
+    it('returns an empty mask for a glyph whose bounds enclose no area', () => {
+      // A record with a bitmap offset but a collapsed box: the size comes from
+      // the bounds, not from the stored packed size, so it decodes to nothing.
+      const empty = buildLft([
+        { key: 0x43, advance: 3, left: 0, top: 0, right: 0, bottom: 4, bitmapOffset: 8 },
+      ]);
+      const g = empty.getGlyphPixels(0x43);
+      expect(g.width).toBe(0);
+      expect(g.height).toBe(0);
+      expect(g.data).toHaveLength(0);
+    });
   });
 
   describe('measureLftText', () => {
@@ -240,6 +302,38 @@ describe('LFT text rendering (active format)', () => {
       const buffer = new Uint8ClampedArray(8 * 8 * 4);
       drawLftGlyph(FONT, buffer, 8, 0x41, 500, 500, WHITE);
       expect(buffer.every(v => v === 0)).toBe(true);
+    });
+
+    it('clips the columns that fall past the right edge', () => {
+      // A 4-wide glyph drawn with its pen two pixels from the edge of a 6-wide
+      // buffer: two columns land, two are clipped.
+      const buffer = new Uint8ClampedArray(6 * 8 * 4);
+      drawLftGlyph(FONT, buffer, 6, 0x41, 4, 0, WHITE);
+      expect(buffer[4 * 4 + 3]).toBe(255);
+      expect(buffer[5 * 4 + 3]).toBe(255);
+      // Nothing wrapped onto the next row.
+      expect(buffer[6 * 4 + 3]).toBe(0);
+    });
+
+    it('skips the clear pixels of a partially inked glyph', () => {
+      // Build a font whose glyph bitmap has only the top-left bit set.
+      const buf = new Uint8Array(LFT_BITMAP_BASE + 32);
+      const view = new DataView(buf.buffer);
+      view.setUint16(0, 12, true);
+      view.setUint16(2, 12, true);
+      const o = 4 + 0x42 * LFT_RECORD_LENGTH;
+      buf[o] = 4;     // advance
+      buf[o + 3] = 2; // right
+      buf[o + 4] = 2; // bottom
+      view.setUint32(o + 7, 8, true);
+      buf[LFT_BITMAP_BASE + 8] = 0b1000_0000; // row 0, leftmost pixel only
+
+      const font = LftFile.fromBuffer(buf);
+      const buffer = new Uint8ClampedArray(4 * 4 * 4);
+      drawLftGlyph(font, buffer, 4, 0x42, 0, 0, WHITE);
+
+      expect(buffer[3]).toBe(255);       // the one inked pixel
+      expect(buffer[1 * 4 + 3]).toBe(0); // its clear neighbour
     });
   });
 });

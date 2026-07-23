@@ -253,9 +253,163 @@ describe('renderEfa', () => {
   });
 
   it('accepts the documented blending types', () => {
-    for (const blend of [EfaBlendingType.Additive, EfaBlendingType.Luminance]) {
+    for (const blend of [EfaBlendingType.Additive, EfaBlendingType.SelfAlpha]) {
       const frame = renderEfa(efaFrame(1, 1, { r: 255, g: 255, b: 255, a: 255 }), blend);
       expect(frame.width).toBe(1);
     }
+  });
+
+  it('offsets the frame inside a larger image canvas', () => {
+    const frame = renderEfa(efaFrame(2, 2, OPAQUE, {
+      left: 1, top: 2,
+      framePixelWidth: 8, framePixelHeight: 8,
+      imagePixelWidth: 8, imagePixelHeight: 8,
+    }));
+    expect(frame.width).toBe(8);
+    expect(frame.height).toBe(8);
+    expect(px(frame, 0, 0).a).toBe(0); // outside the placed frame
+    expect(px(frame, 1, 2).a).toBe(255); // the frame's own origin
+  });
+
+  it('drops pixels that fall outside the declared frame size', () => {
+    // The data is 4x1 but the frame claims to be 2 wide, so the last two source
+    // pixels are padding and must not be drawn.
+    const frame = renderEfa(efaFrame(4, 1, OPAQUE, { framePixelWidth: 2, framePixelHeight: 1 }));
+    expect(px(frame, 0, 0).a).toBe(255);
+    expect(px(frame, 1, 0).a).toBe(255);
+    expect(px(frame, 2, 0).a).toBe(0);
+    expect(px(frame, 3, 0).a).toBe(0);
+  });
+
+  it('drops whole rows below the declared frame height', () => {
+    const frame = renderEfa(efaFrame(1, 4, OPAQUE, { framePixelWidth: 1, framePixelHeight: 2 }));
+    expect(px(frame, 0, 1).a).toBe(255);
+    expect(px(frame, 0, 2).a).toBe(0);
+  });
+
+  describe('alpha surfaces', () => {
+    /** Two 16-bit words per pixel row, little-endian. */
+    function words(values: number[]): Uint8Array {
+      const out = new Uint8Array(values.length * 2);
+      const view = new DataView(out.buffer);
+      values.forEach((v, i) => view.setUint16(i * 2, v, true));
+      return out;
+    }
+
+    it('reads a raw alpha surface, scaling the five-bit value to eight', () => {
+      // unknown4 !== 4 selects the raw decoder: one 16-bit alpha word per pixel,
+      // holding a 0..31 value.
+      const frame = renderEfa(
+        efaFrame(2, 1, OPAQUE, { alphaData: words([31, 0]), unknown4: 0 }),
+        EfaBlendingType.SeparateAlpha,
+      );
+      expect(px(frame, 0, 0).a).toBe(255);
+      expect(px(frame, 1, 0).a).toBe(0);
+    });
+
+    it('clamps a raw alpha value above the five-bit range', () => {
+      const frame = renderEfa(
+        efaFrame(1, 1, OPAQUE, { alphaData: words([0xffff]), unknown4: 0 }),
+        EfaBlendingType.SeparateAlpha,
+      );
+      expect(px(frame, 0, 0).a).toBe(255);
+    });
+
+    it('reads a per-channel alpha surface as the brightest channel', () => {
+      // RGB555 alpha word: red 31, green 0, blue 0 → alpha 255.
+      const bright = (31 << 10);
+      const frame = renderEfa(
+        efaFrame(2, 1, OPAQUE, { alphaData: words([bright, 0]) }),
+        EfaBlendingType.PerChannelAlpha,
+      );
+      expect(px(frame, 0, 0).a).toBe(255);
+      expect(px(frame, 1, 0).a).toBe(0);
+    });
+
+    it('reads an RLE alpha surface, whose rows start at a per-row offset table', () => {
+      // unknown4 === 4 selects the RLE decoder. Layout: one int32 row offset per
+      // row, then (count << 8 | alpha) words at that offset.
+      const height = 2;
+      const table = new Uint8Array(height * 4);
+      const tableView = new DataView(table.buffer);
+      tableView.setUint32(0, 8, true);  // row 0 runs start at byte 8
+      tableView.setUint32(4, 12, true); // row 1 runs start at byte 12
+
+      const runs = new Uint8Array(8);
+      const runView = new DataView(runs.buffer);
+      runView.setUint16(0, (2 << 8) | 31, true); // row 0: two opaque pixels
+      runView.setUint16(2, 0, true);
+      runView.setUint16(4, (2 << 8) | 0, true);  // row 1: two transparent pixels
+      runView.setUint16(6, 0, true);
+
+      const alphaData = new Uint8Array(table.length + runs.length);
+      alphaData.set(table);
+      alphaData.set(runs, table.length);
+
+      const frame = renderEfa(
+        efaFrame(2, 2, OPAQUE, { alphaData, unknown4: 4 }),
+        EfaBlendingType.SeparateAlpha,
+      );
+      expect(px(frame, 0, 0).a).toBe(255);
+      expect(px(frame, 1, 0).a).toBe(255);
+      expect(px(frame, 0, 1).a).toBe(0);
+    });
+
+    it('returns a fully transparent RLE surface when the offset table is truncated', () => {
+      const frame = renderEfa(
+        efaFrame(2, 2, OPAQUE, { alphaData: new Uint8Array(2), unknown4: 4 }),
+        EfaBlendingType.SeparateAlpha,
+      );
+      expect(px(frame, 0, 0).a).toBe(0);
+    });
+
+    it('stops early when the alpha surface is shorter than the frame', () => {
+      const frame = renderEfa(
+        efaFrame(4, 1, OPAQUE, { alphaData: words([31]), unknown4: 0 }),
+        EfaBlendingType.SeparateAlpha,
+      );
+      expect(px(frame, 0, 0).a).toBe(255);
+      // Pixels past the end of the surface decode to zero.
+      expect(px(frame, 3, 0).a).toBe(0);
+    });
+
+    it('falls back to the brightest color channel when no alpha surface is present', () => {
+      const dim = renderEfa(efaFrame(1, 1, { r: 0, g: 0, b: 0, a: 255 }), EfaBlendingType.SeparateAlpha);
+      const bright = renderEfa(efaFrame(1, 1, { r: 255, g: 255, b: 255, a: 255 }), EfaBlendingType.SeparateAlpha);
+      expect(px(dim, 0, 0).a).toBe(0);
+      expect(px(bright, 0, 0).a).toBeGreaterThan(240);
+    });
+
+    it('ignores an empty alpha surface and uses the channel fallback', () => {
+      const frame = renderEfa(
+        efaFrame(1, 1, { r: 255, g: 255, b: 255, a: 255 }, { alphaData: new Uint8Array(0) }),
+        EfaBlendingType.SeparateAlpha,
+      );
+      expect(px(frame, 0, 0).a).toBeGreaterThan(240);
+    });
+
+    it('ignores an alpha surface for a blend mode that does not use one', () => {
+      const frame = renderEfa(
+        efaFrame(1, 1, { r: 0, g: 0, b: 0, a: 255 }, { alphaData: words([0]), unknown4: 0 }),
+        EfaBlendingType.Additive,
+      );
+      expect(px(frame, 0, 0).a).toBe(255);
+    });
+
+    it('treats an unrecognised blend mode as fully opaque', () => {
+      const frame = renderEfa(efaFrame(1, 1, OPAQUE), 99 as EfaBlendingType);
+      expect(px(frame, 0, 0).a).toBe(255);
+    });
+
+    it('honours the premultiplied alpha mode', () => {
+      const frame = renderEfa(
+        efaFrame(1, 1, { r: 255, g: 255, b: 255, a: 255 }, { alphaData: words([15]), unknown4: 0 }),
+        EfaBlendingType.SeparateAlpha,
+        AlphaMode.Premultiplied,
+      );
+      const p = px(frame, 0, 0);
+      expect(p.a).toBeLessThan(255);
+      expect(p.r).toBeLessThan(255);
+    });
   });
 });

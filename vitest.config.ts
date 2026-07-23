@@ -27,11 +27,16 @@ export default defineConfig({
         //   DALIB_CLIENT_DIR=/nonexistent npm run test:coverage
         //
         // Baseline on this commit, measured without a client (what CI sees):
-        // lines 89.64, branches 77.88, functions 95.91, statements 88.34.
-        lines: 88,
-        branches: 76,
-        functions: 95,
-        statements: 87,
+        // lines 99.52, branches 93.65, functions 99.74, statements 99.15.
+        //
+        // What is left is environment-dependent and not worth mocking: the
+        // `catch` arms that report a missing `node:zlib`, and the fallbacks for
+        // a runtime with no `DecompressionStream`. Node supplies both, so those
+        // lines cannot run here.
+        lines: 99,
+        branches: 93,
+        functions: 99,
+        statements: 99,
       },
     },
   },
