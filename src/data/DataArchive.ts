@@ -60,7 +60,16 @@ export class DataArchive {
     }
     reader.seek(0);
 
-    const expectedCount = reader.readInt32LE() - 1;
+    // The count word is a signed int32. A negative value is not a legacy archive: the
+    // extended layout leads with 0xFFFFFFFF (-1), and any other negative count is corrupt
+    // or hostile. Reject it, else `expectedCount` goes negative, the loop below never runs,
+    // and the caller silently gets an empty archive. Mirrors C# DALib commit 7479957.
+    const countWord = reader.readInt32LE();
+    if (countWord < 0) {
+      throw new Error('Invalid DAT archive: negative entry count');
+    }
+
+    const expectedCount = countWord - 1;
 
     for (let i = 0; i < expectedCount; i++) {
       const startAddress = reader.readInt32LE();

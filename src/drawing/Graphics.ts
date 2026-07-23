@@ -42,6 +42,13 @@ export function renderPalettized(
   alphaMode: AlphaMode = AlphaMode.Straight,
   colorKey = true,
 ): RgbaFrame {
+  // Empty placeholder frames encode Right < Left / Bottom < Top, giving non-positive
+  // dimensions and no pixel data. Guard centrally so every caller (HPF/SPF/MPF/Tile) is
+  // covered. Mirrors the C# DALib SimpleRender fix (commit b2d0de3).
+  if (width <= 0 || height <= 0) {
+    return { width: 1, height: 1, data: new Uint8ClampedArray(4) };
+  }
+
   const dstOffsetX = Math.max(0, left);
   const dstOffsetY = Math.max(0, top);
   const bitmapWidth = width + dstOffsetX;
@@ -73,6 +80,12 @@ export function renderColorized(
   colorData: Color[],
   alphaMode: AlphaMode = AlphaMode.Straight,
 ): RgbaFrame {
+  // See renderPalettized: guard non-positive dimensions from empty placeholder frames
+  // centrally. Mirrors the C# DALib SimpleRender fix (commit b2d0de3).
+  if (width <= 0 || height <= 0) {
+    return { width: 1, height: 1, data: new Uint8ClampedArray(4) };
+  }
+
   const dstOffsetX = Math.max(0, left);
   const dstOffsetY = Math.max(0, top);
   const bitmapWidth = width + dstOffsetX;

@@ -159,6 +159,20 @@ describe('DataArchive', () => {
     });
   });
 
+  it('rejects the extended (0xFFFFFFFF) archive header', () => {
+    const writer = new SpanWriter();
+    writer.writeUInt32LE(0xffffffff);
+    expect(() => DataArchive.fromBuffer(writer.toUint8Array())).toThrow(/Extended DAT archive/);
+  });
+
+  it('rejects a non-0xFFFFFFFF negative entry count instead of yielding an empty archive', () => {
+    // A corrupt or hostile count word (here 0xFFFFFFFE, i.e. -2) must not slip through
+    // and produce a silent empty archive. See C# DALib commit 7479957.
+    const writer = new SpanWriter();
+    writer.writeUInt32LE(0xfffffffe);
+    expect(() => DataArchive.fromBuffer(writer.toUint8Array())).toThrow(/negative entry count/);
+  });
+
   it('still accepts the legacy positional newFormat boolean', () => {
     const dat = buildDatBuffer([
       { name: 'plain.spf', data: new Uint8Array([0x01]) },
