@@ -4,7 +4,7 @@ All notable changes to `@eriscorp/dalib-ts` will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.0.0] - 2026-07-24
 
 Findings from reconciling the library against the `darkages-741-re` file-format
 documentation, validated against a real 7.41 client install.
@@ -169,7 +169,8 @@ Initial public release of `@eriscorp/dalib-ts` on npmjs.org. TypeScript port of 
 
 <!-- Version 2.1.0 has no entry: it was prepared but never tagged or published. -->
 
-[Unreleased]: https://github.com/eriscorp/dalib-ts/compare/v2.2.0...HEAD
+[Unreleased]: https://github.com/eriscorp/dalib-ts/compare/v3.0.0...HEAD
+[3.0.0]: https://github.com/eriscorp/dalib-ts/compare/v2.2.0...v3.0.0
 [2.2.0]: https://github.com/eriscorp/dalib-ts/compare/v2.0.0...v2.2.0
 [2.0.0]: https://github.com/eriscorp/dalib-ts/compare/v1.0.1...v2.0.0
 [1.0.1]: https://github.com/eriscorp/dalib-ts/compare/v1.0.0...v1.0.1
