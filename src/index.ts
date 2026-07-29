@@ -85,6 +85,17 @@ export { emptyColorTableEntry } from './drawing/ColorTableEntry.js';
 export type { PaletteCyclingEntry } from './drawing/PaletteCyclingEntry.js';
 export { PaletteTable } from './drawing/PaletteTable.js';
 export { PaletteLookup } from './drawing/PaletteLookup.js';
+export type { PaletteLookupResult } from './drawing/PaletteLookup.js';
+
+// Drawing — Palette resolution
+export { matchPaletteRule } from './drawing/paletteRules.js';
+export type {
+  PaletteIdKind,
+  PaletteRuleMatch,
+  PaletteSourceKind,
+} from './drawing/paletteRules.js';
+export { PaletteResolver } from './drawing/PaletteResolver.js';
+export type { ArchiveProvider, ResolvedPalette } from './drawing/PaletteResolver.js';
 
 // Drawing — Image formats
 export { BikFile } from './drawing/BikFile.js';

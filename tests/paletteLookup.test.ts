@@ -82,6 +82,29 @@ describe('PaletteLookup', () => {
       expect(p.get(0).a).toBe(255);
     });
   });
+
+  describe('getResolvedPaletteForId', () => {
+    it('reports the palette number and a false flag for a plain lookup', () => {
+      const lookup = new PaletteLookup(new Map([[7, flat(1)]]), table('5 7'));
+      const result = lookup.getResolvedPaletteForId(5);
+      expect(result.paletteNumber).toBe(7);
+      expect(result.luminanceBlended).toBe(false);
+      expect(result.palette.get(0).r).toBe(1);
+    });
+
+    it('reports the post-subtraction number and a true flag for a blended lookup', () => {
+      const lookup = new PaletteLookup(new Map([[3, flat(255)]]), table('5 1003'));
+      const result = lookup.getResolvedPaletteForId(5);
+      expect(result.paletteNumber).toBe(3);
+      expect(result.luminanceBlended).toBe(true);
+      expect(result.palette.get(0).a).toBe(255);
+    });
+
+    it('throws when the resolved palette number is absent', () => {
+      const lookup = new PaletteLookup(new Map([[1, flat(1)]]), table('5 7'));
+      expect(() => lookup.getResolvedPaletteForId(5)).toThrow(/Palette 7 not found/);
+    });
+  });
 });
 
 describe('PaletteLookup archive factories', () => {

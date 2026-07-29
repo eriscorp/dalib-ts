@@ -4,6 +4,47 @@ All notable changes to `@eriscorp/dalib-ts` will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.0] - 2026-07-28
+
+Automatic palette resolution for legacy archives, ported from the rules
+ChaosAssetManager carries as C# control flow and specified in the document
+repo (`docs/architecture/palette-resolution.md`). A legacy `.epf`/`.hpf`/
+`.mpf`/tileset frame is a grid of palette indices; these rules find the
+palette, so downstream tools get a correct default instead of the first
+`.pal` in archive order.
+
+### Added
+
+- **`PaletteResolver`** — resolves the palette for entries of one open archive.
+  Instance-scoped (no statics, no reset ritual), constructed with the archive
+  name, the archive, and an `ArchiveProvider` callback that supplies the two
+  sibling archives the rules need (`khanpal.dat`, `legend.dat`) without naming
+  filesystem paths. `resolve(entry, frameIndex?)` returns a `ResolvedPalette`
+  (`palette`, `paletteNumber`, `luminanceBlended`, `kind`, `ruleId`) or `null`
+  for the host's manual picker; it never throws, and it caches every palette
+  source — including failed builds — for the life of the instance. Reproduces
+  CAM's `field000.pal` wart (a stray `fielde00.pal` in `setoa.dat` wins slot 0
+  by parse order; the real file is forced back in) without touching the
+  identifier parser.
+- **`matchPaletteRule`** — the pure rule-match stage, exported separately so
+  the full ladder (legend, national, roh, setoa, misc, khan letter remaps,
+  hpf, mpf, tilesets) is testable with plain strings. Emits stable `ruleId`
+  strings (`legend/bkstory`, `setoa/lg_`, `khan/letter`, …) shared with the
+  planned C# port; `tests/fixtures/palette-resolution.json` is the frozen
+  cross-port conformance contract, and the gated real-client suite verified
+  every rule family against a 7.41 install, including the `national.dat` /
+  `misc.dat` sibling `legend.pal` wiring the spec flagged as unverified.
+- **`PaletteLookup.getResolvedPaletteForId`** — same lookup as
+  `getPaletteForId`, but reports the real palette number and the
+  luminance-blending flag (`PaletteLookupResult`), so a Skia consumer knows to
+  use straight alpha. `getPaletteForId` is now a wrapper; behavior unchanged.
+
+The table rules use the real on-disk names (`stcpal.tbl`, `stspal.tbl`,
+`mptpal.tbl`, `mpspal.tbl`) rather than the spec's `stc.tbl` shorthand, which
+also keeps `stcani.tbl`/`gndani.tbl` animation tables out of the palette
+tables. Contact-sheet renders, palette cycling, and frame-sequence selection
+stay out of scope per the spec's deferral list.
+
 ## [3.0.0] - 2026-07-24
 
 Findings from reconciling the library against the `darkages-741-re` file-format
@@ -169,7 +210,8 @@ Initial public release of `@eriscorp/dalib-ts` on npmjs.org. TypeScript port of 
 
 <!-- Version 2.1.0 has no entry: it was prepared but never tagged or published. -->
 
-[Unreleased]: https://github.com/eriscorp/dalib-ts/compare/v3.0.0...HEAD
+[Unreleased]: https://github.com/eriscorp/dalib-ts/compare/v3.1.0...HEAD
+[3.1.0]: https://github.com/eriscorp/dalib-ts/compare/v3.0.0...v3.1.0
 [3.0.0]: https://github.com/eriscorp/dalib-ts/compare/v2.2.0...v3.0.0
 [2.2.0]: https://github.com/eriscorp/dalib-ts/compare/v2.0.0...v2.2.0
 [2.0.0]: https://github.com/eriscorp/dalib-ts/compare/v1.0.1...v2.0.0

@@ -13,6 +13,17 @@ import { PaletteTable } from './PaletteTable.js';
 const ALPHA_LUT = [0, 0, 0, 1, 2, 3, 5, 6, 7, 9, 10] as const;
 
 /**
+ * The result of a palette lookup, with the metadata a renderer needs.
+ */
+export interface PaletteLookupResult {
+  palette: Palette;
+  /** The real palette number, after any 1000 subtraction. */
+  paletteNumber: number;
+  /** True when the palette carries luminance alpha. Render with straight (non-premultiplied) alpha. */
+  luminanceBlended: boolean;
+}
+
+/**
  * Combines a PaletteTable (ID → palette number mapping) with a palette dictionary
  * (palette number → Palette) to resolve the correct Palette for any external ID.
  */
@@ -38,6 +49,17 @@ export class PaletteLookup {
    * (each color's alpha is set proportional to its brightest channel).
    */
   getPaletteForId(id: number, khanPalOverrideType: KhanPalOverrideType = KhanPalOverrideType.None): Palette {
+    return this.getResolvedPaletteForId(id, khanPalOverrideType).palette;
+  }
+
+  /**
+   * Gets the Palette for the given external ID, together with the real palette
+   * number and the luminance-blending flag. See {@link getPaletteForId}.
+   */
+  getResolvedPaletteForId(
+    id: number,
+    khanPalOverrideType: KhanPalOverrideType = KhanPalOverrideType.None,
+  ): PaletteLookupResult {
     let paletteNumber = this.table.getPaletteNumber(id, khanPalOverrideType);
     let useLuminanceBlending = false;
 
@@ -49,7 +71,7 @@ export class PaletteLookup {
     const palette = this.palettes.get(paletteNumber);
     if (!palette) throw new Error(`Palette ${paletteNumber} not found`);
 
-    if (!useLuminanceBlending) return palette;
+    if (!useLuminanceBlending) return { palette, paletteNumber, luminanceBlended: false };
 
     const blended = new Palette();
     for (let i = 0; i < COLORS_PER_PALETTE; i++) {
@@ -59,7 +81,7 @@ export class PaletteLookup {
       const alpha = Math.round(Math.min(ALPHA_LUT[tableIndex]! * 255 / 10, 255));
       blended.colors[i] = { r: c.r, g: c.g, b: c.b, a: alpha };
     }
-    return blended;
+    return { palette: blended, paletteNumber, luminanceBlended: true };
   }
 
   // ---------------------------------------------------------------------------
