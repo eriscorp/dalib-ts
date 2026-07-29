@@ -77,6 +77,27 @@ const spf = SpfFile.fromBuffer(archive.getEntryBuffer(spfEntry));
 const palette = Palette.fromBuffer(archive.getEntryBuffer(palEntry));
 ```
 
+### Resolving the palette for a legacy entry
+
+Legacy sprites do not carry their own colors. `PaletteResolver` applies the
+client's rules to find the correct palette for an entry:
+
+```ts
+import { DataArchive, PaletteResolver } from '@eriscorp/dalib-ts';
+
+const archive = DataArchive.fromFile('legend.dat');
+// The provider supplies sibling archives; return null when unavailable.
+const resolver = new PaletteResolver('legend.dat', archive, name => null);
+
+const resolved = resolver.resolve(archive.get('item001.epf')!, 0);
+if (resolved) {
+  // resolved.palette, resolved.paletteNumber, resolved.ruleId
+  // resolved.luminanceBlended → render with straight (non-premultiplied) alpha
+} else {
+  // No rule matched, or data is missing — fall back to a manual picker.
+}
+```
+
 ### Rendering to ImageData
 
 ```ts
@@ -108,6 +129,11 @@ ctx.putImageData(imageData, 0, 0);
 - `decodeRgb565` / `encodeRgb565` — RGB565 color codec
 - `quantizeFrames` — palette quantization for image export
 - `cropTransparentPixels` — trim transparent borders from frames
+
+### Palette resolution
+- `PaletteResolver` — resolves the palette for entries of one open archive; returns `ResolvedPalette` (`palette`, `paletteNumber`, `luminanceBlended`, `kind`, `ruleId`) or `null`
+- `matchPaletteRule(archiveName, entryName)` — the pure rule-match stage, for tests and hosts that only need the `ruleId`
+- `PaletteLookup.getResolvedPaletteForId(id, override?)` — like `getPaletteForId`, and reports the real palette number plus the luminance-blending flag
 
 ### Virtualized (lazy) Views
 For large archives, avoid decoding everything upfront:
