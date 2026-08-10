@@ -11,6 +11,18 @@ import { MpfView } from './virtualized/MpfView.js';
  * Supplies sibling archives by file name (for example `khanpal.dat`).
  * Return `null` when the archive is not available. A `null` result is not an
  * error — the rules that need the sibling become unresolved.
+ *
+ * ## Names arrive lowercase; resolve them case-insensitively
+ *
+ * The rules name their sibling archives as lowercase literals, but the official
+ * installer writes `Legend.dat` with a capital L. A provider that joins the name
+ * straight onto a path therefore finds nothing on a case-sensitive filesystem,
+ * and because `null` is a legitimate answer the failure is silent.
+ *
+ * Match names case-insensitively — list the directory once and fold. The
+ * resolver retries {@link SIBLING_NAME_VARIANTS} on a `null`, which covers the
+ * casings seen in the wild, but a provider that folds properly is the reliable
+ * fix; the retry only guesses at names the library happens to know.
  */
 export type ArchiveProvider = (name: string) => DataArchive | null;
 
@@ -33,6 +45,22 @@ export interface ResolvedPalette {
  * derived — presumed to be the item count per `.epf` (spec §8.2).
  */
 const LEGEND_ITEM_PALETTE_STRIDE = 266;
+
+/**
+ * Casings to try for a sibling archive name, in order, until the provider
+ * returns one.
+ *
+ * `legend.dat` as written by the rules, `Legend.dat` as written by the official
+ * 7.41 installer, and `LEGEND.DAT` as written by some third-party unpackers.
+ * Only names that differ from the one already tried are used, so a provider on a
+ * case-insensitive filesystem is still called exactly once.
+ */
+const SIBLING_NAME_VARIANTS: readonly ((name: string) => string)[] = [
+  (name) => name,
+  (name) => name.charAt(0).toUpperCase() + name.slice(1),
+  (name) => name.toUpperCase(),
+  (name) => name.toLowerCase(),
+];
 
 /**
  * Resolves the palette for entries of one open archive.
@@ -190,13 +218,27 @@ export class PaletteResolver {
     return this.getSibling(match.sourceArchive);
   }
 
+  /**
+   * Fetch a sibling archive, tolerating the casing the host stores it under.
+   *
+   * Keyed on the requested name, not the one that answered, so the cache holds
+   * one entry per rule literal and a miss is not re-probed per call.
+   */
   private getSibling(name: string): DataArchive | null {
     let sibling = this.siblingCache.get(name);
     if (sibling === undefined) {
-      try {
-        sibling = this.provider(name);
-      } catch {
-        sibling = null;
+      sibling = null;
+      const tried = new Set<string>();
+      for (const variant of SIBLING_NAME_VARIANTS) {
+        const candidate = variant(name);
+        if (tried.has(candidate)) continue;
+        tried.add(candidate);
+        try {
+          sibling = this.provider(candidate);
+        } catch {
+          sibling = null;
+        }
+        if (sibling) break;
       }
       this.siblingCache.set(name, sibling);
     }

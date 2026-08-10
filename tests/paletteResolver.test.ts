@@ -271,8 +271,13 @@ describe('PaletteResolver — khan family', () => {
       throw new Error('no filesystem');
     });
     expect(resolver.resolve(archive.get('mb00501.epf')!)).toBeNull();
+    const afterFirst = calls;
     expect(resolver.resolve(archive.get('mb00501.epf')!)).toBeNull();
-    expect(calls).toBe(1);
+
+    // The first resolve tries the three distinct casings of `khanpal.dat`; the
+    // second adds nothing, because the null is cached under the requested name.
+    expect(afterFirst).toBe(3);
+    expect(calls).toBe(3);
   });
 });
 
@@ -512,6 +517,81 @@ describe('PaletteResolver — unresolved entries', () => {
     const archive = buildArchive([{ name: 'wizard01.epf', data: stub }]);
     const resolver = new PaletteResolver('roh.dat', archive, noSiblings);
     expect(resolver.resolve(archive.get('wizard01.epf')!)).toBeNull();
+  });
+});
+
+describe('PaletteResolver — sibling archive casing', () => {
+  const legend = buildArchive([{ name: 'legend.pal', data: palBytes(77) }]);
+  const archive = buildArchive([{ name: 'anything.epf', data: stub }]);
+
+  /** A provider backed by one archive stored under exactly `storedAs`. */
+  const caseSensitiveProvider = (storedAs: string) => {
+    const asked: string[] = [];
+    const provider = (name: string) => {
+      asked.push(name);
+      return name === storedAs ? legend : null;
+    };
+    return { asked, provider };
+  };
+
+  // national.dat resolves through a fixed `legend.pal` in the sibling legend.dat,
+  // so it exercises the cross-archive boundary with the least machinery.
+  const resolveVia = (provider: (name: string) => typeof legend | null) =>
+    new PaletteResolver('national.dat', archive, provider).resolve(archive.get('anything.epf')!);
+
+  it('finds the sibling when the host stores it as the installer wrote it', () => {
+    // The official 7.41 installer writes `Legend.dat`. The rules ask for
+    // `legend.dat`, so on a case-sensitive filesystem this used to resolve to
+    // null with no error, and the caller silently fell back to a manual picker.
+    const { asked, provider } = caseSensitiveProvider('Legend.dat');
+    const resolved = resolveVia(provider);
+
+    expect(resolved).not.toBeNull();
+    expect(resolved!.palette.get(1).r).toBe(77);
+    expect(asked).toEqual(['legend.dat', 'Legend.dat']);
+  });
+
+  it('finds the sibling when an unpacker folded the name to upper case', () => {
+    const { asked, provider } = caseSensitiveProvider('LEGEND.DAT');
+    expect(resolveVia(provider)).not.toBeNull();
+    expect(asked).toEqual(['legend.dat', 'Legend.dat', 'LEGEND.DAT']);
+  });
+
+  it('asks exactly once when the first name answers', () => {
+    // A case-insensitive host must not pay for the retry.
+    const { asked, provider } = caseSensitiveProvider('legend.dat');
+    expect(resolveVia(provider)).not.toBeNull();
+    expect(asked).toEqual(['legend.dat']);
+  });
+
+  it('caches the miss under the requested name and stops probing', () => {
+    let calls = 0;
+    const provider = () => {
+      calls++;
+      return null;
+    };
+    const resolver = new PaletteResolver('national.dat', archive, provider);
+    const entry = archive.get('anything.epf')!;
+
+    expect(resolver.resolve(entry)).toBeNull();
+    const afterFirst = calls;
+    expect(resolver.resolve(entry)).toBeNull();
+
+    // Three distinct casings tried once, then the null is cached by the name the
+    // rule asked for — not re-probed on every call.
+    expect(afterFirst).toBe(3);
+    expect(calls).toBe(3);
+  });
+
+  it('survives a provider that throws on a name it does not expect', () => {
+    const asked: string[] = [];
+    const provider = (name: string) => {
+      asked.push(name);
+      if (name !== 'Legend.dat') throw new Error('no such file');
+      return legend;
+    };
+    expect(resolveVia(provider)).not.toBeNull();
+    expect(asked).toEqual(['legend.dat', 'Legend.dat']);
   });
 });
 

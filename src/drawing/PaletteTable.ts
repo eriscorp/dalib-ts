@@ -36,6 +36,30 @@ import type { PaletteCyclingEntry } from './PaletteCyclingEntry.js';
  * Taliesin's `mapRenderer`/`tileEligibility`); the sprite paths (item, khan, effect)
  * pass raw IDs and are consequently off by one, masked by their palette-0 fallbacks.
  */
+/**
+ * Upper bound on the id count a single `min max palette` line may expand to.
+ *
+ * A crafted line such as `1 999999999 5` otherwise ties up the process filling a
+ * map with a billion entries. The bound is measured, not guessed: across a
+ * retail 7.41 install the largest span in a real palette table is 527
+ * (`ia.dat:stspal.tbl`), the largest in any `.tbl` is 3,196
+ * (`cious.dat:rs_linfo.tbl`), and the largest id of any kind is 20,424. 65,536
+ * is 20x the widest real span and 3x the whole observed id space, so it refuses
+ * the hostile case while leaving retail data far from the limit.
+ */
+const MAX_RANGE_SPAN = 65536;
+
+/**
+ * Upper bound on the ids expanded across one whole file.
+ *
+ * Needed because {@link MAX_RANGE_SPAN} alone still admits many wide lines.
+ * Ranges in real tables overlap heavily, so this counts iterations rather than
+ * distinct ids: `ia.dat:stcpal.tbl` iterates 140,724 times to produce far fewer
+ * keys. 1,000,000 gives that ~7x of headroom and caps the worst case at a
+ * bounded, recoverable allocation.
+ */
+const MAX_TOTAL_RANGE_ENTRIES = 1000000;
+
 export class PaletteTable {
   /** Cycling definitions per palette number (from companion numeric .tbl files). */
   readonly cyclingEntries: Map<number, PaletteCyclingEntry[]> = new Map();
@@ -152,6 +176,7 @@ export class PaletteTable {
 
   private static parseText(text: string): PaletteTable {
     const table = new PaletteTable();
+    let expanded = 0;
 
     for (const rawLine of text.split(/\r?\n/)) {
       // The client's range parser skips blank lines and `//` comments.
@@ -176,6 +201,22 @@ export class PaletteTable {
         } else if (third === -2) {
           table.femaleOverrides.set(min, mid);
         } else {
+          // Skip the line rather than abandoning the file. Retail `.tbl` files
+          // that are not palette tables — `MobTile.tbl`, `skill.tbl`,
+          // `meffect.tbl` — share the extension but not this grammar, and a
+          // consumer that points this parser at one meets 163 reversed "ranges"
+          // in a stock 7.41 install. They produced nothing before the guard and
+          // must keep producing nothing, not a parse failure.
+          if (min > mid) continue;
+
+          // Both caps drop the offending line only. Overrides and narrower
+          // ranges further down the file still parse, so one hostile line costs
+          // that line rather than everything after it.
+          const span = mid - min + 1;
+          if (span > MAX_RANGE_SPAN) continue;
+          if (expanded + span > MAX_TOTAL_RANGE_ENTRIES) continue;
+          expanded += span;
+
           for (let i = min; i <= mid; i++) table.entries.set(i, third);
         }
       }

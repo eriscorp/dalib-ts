@@ -60,6 +60,63 @@ describe('PaletteTable parsing', () => {
   });
 });
 
+describe('PaletteTable range expansion limits', () => {
+  it('refuses the hostile wide range without allocating or iterating it', () => {
+    // The fixture from the card: one line claiming a billion ids. Before the cap
+    // this filled a Map with 999,999,999 entries. The assertion is the timing as
+    // much as the result — an unbounded loop does not return in 2 seconds.
+    const started = performance.now();
+    const table = parse('1 999999999 5\n');
+    const elapsed = performance.now() - started;
+
+    expect(elapsed).toBeLessThan(2000);
+    expect(table.getPaletteNumber(1)).toBe(0);
+    expect(table.getPaletteNumber(500000)).toBe(0);
+  });
+
+  it('keeps parsing the rest of the file after refusing one wide line', () => {
+    // The wide line is dropped, not treated as a parse failure, so a single bad
+    // line cannot cost the whole table.
+    const table = parse('1 999999999 5\n7 9 3\n');
+    expect(table.getPaletteNumber(8)).toBe(3);
+  });
+
+  it('accepts a span as wide as any in retail data', () => {
+    // The widest span in a real palette table is 527 (ia.dat:stspal.tbl), and the
+    // widest in any retail .tbl is 3,196. Both must stay well inside the cap.
+    const table = parse('1 3196 4\n');
+    expect(table.getPaletteNumber(1)).toBe(4);
+    expect(table.getPaletteNumber(3196)).toBe(4);
+  });
+
+  it('stops expanding once the whole-file budget is spent', () => {
+    // 40 lines of 65,536 exceeds the 1,000,000 aggregate, so the later lines are
+    // dropped even though each one is individually legal.
+    const lines: string[] = [];
+    for (let i = 0; i < 40; i++) lines.push(`${i * 100000 + 1} ${i * 100000 + 65536} 6`);
+    const table = parse(lines.join('\n'));
+
+    expect(table.getPaletteNumber(1)).toBe(6);
+    expect(table.getPaletteNumber(3900001)).toBe(0);
+  });
+
+  it('drops a reversed range without failing the file', () => {
+    // A stock 7.41 install has 163 reversed "ranges", every one of them in a .tbl
+    // that is not a palette table at all — MobTile.tbl, skill.tbl, meffect.tbl —
+    // sharing the extension but not this grammar. They yielded nothing before the
+    // guard and must still yield nothing rather than aborting the parse.
+    const table = parse('2\t1\t1\t4\t2\n5 3 9\n7 9 3\n');
+    expect(table.getPaletteNumber(4)).toBe(0);
+    expect(table.getPaletteNumber(8)).toBe(3);
+  });
+
+  it('refuses a range whose span overflows through a negative minimum', () => {
+    const table = parse('-999999999 5 7\n1 3 8\n');
+    expect(table.getPaletteNumber(0)).toBe(0);
+    expect(table.getPaletteNumber(2)).toBe(8);
+  });
+});
+
 describe('PaletteTable mutation', () => {
   it('adds general, male and female overrides', () => {
     const table = new PaletteTable();
