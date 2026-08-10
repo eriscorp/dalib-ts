@@ -1,5 +1,15 @@
 # dalib-ts follow-ups
 
+> **Status: closed. Everything in sections 1–4 shipped in 2.2.0.** Section 5 records
+> two deliberate non-ports. The file is kept for the reasoning, which is the part
+> worth having later; it is not a list of open work.
+>
+> **The networking decision below is superseded** — see "Networking" at the end.
+>
+> For open cross-library work, see [`../upstream-findings.md`](../upstream-findings.md).
+> New follow-ups go to the internal tracker with the `dalib-ts` label, per
+> [`../../AGENTS.md`](../../AGENTS.md).
+
 Running list of dalib-ts work to batch into the next pass. Grouped so the whole
 set can be tested together (parser hardening + the pending FntFile reversal).
 
@@ -193,6 +203,19 @@ ColorTable guard can stay as defense-in-depth after the library fix ships.
 **Deferred to its own effort (not in this release):** the **networking** layer — the
 bulk of the 0.7.0→1.0.0 C# delta is a new `DALib/Networking` module (~160 packet
 classes + wire framing + packet-crypto + opcodes; no TCP sockets). No TS
-DA-networking exists yet. Decided: it will live in a **sibling `dalib-net-ts`**
-(depending on dalib-ts for byte primitives), keeping dalib-ts asset-only. Real
+DA-networking exists yet. ~~Decided: it will live in a **sibling `dalib-net-ts`**
+(depending on dalib-ts for byte primitives), keeping dalib-ts asset-only.~~ Real
 sockets/session/proxy transport stay out of both.
+
+---
+
+## Networking — the decision above is superseded
+
+**Revised 2026-07-23 (Kedian).** A separate `dalib-net-ts` package is the wrong
+default. When the networking layer is ported it **folds into `dalib-ts`**, not into
+a sibling. The struck-through text above records what was originally planned; do not
+treat `dalib-net-ts` as committed.
+
+Still true either way: the port has not started, and real sockets, session handling
+and proxy transport stay out of scope. `CRC32`'s `finalXor` flag (§4) was ported
+early because the networking layer will need it, and that remains its justification.

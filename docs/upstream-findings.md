@@ -1,169 +1,120 @@
-# DALib (C#) — findings from the dalib-ts 7.41 reconciliation
+# DALib (C#) — findings from the dalib-ts reconciliation
 
-This document lists bugs in the C# `DALib` library. The `dalib-ts` TypeScript port found these
-bugs during a reconciliation pass against a real Dark Ages 7.41 client and the `darkages-741-re`
-file-format documentation. The port fixed each one. The C# source still has each bug.
+This document tracks defects `dalib-ts` found in the C# `DALib` library, and what upstream did
+with them. `dalib-ts` is the TypeScript port, so the two libraries are expected to agree; where
+they disagree, one of them is wrong and this file records which.
 
-Every verdict below cites the exact C# file and line. The line numbers match the `DALib` source at
-the time of writing (post `v1.0.0-beta2`). Confirm the lines against your checkout before you patch.
-
-The findings are ranked by impact. The first three are unambiguous and self-contained.
+**The original six findings are all fixed upstream.** They are kept below in short form, because
+the reasoning is the record of why each rule is what it is. Section 2 lists what is still open.
 
 ---
 
-## 1. ControlFile expands `<IMAGE>` as a frame range, not an ordered list
+## 1. The original six — all adopted
 
-- **File:** `DALib/Utility/ControlFileParser.cs:39-55` (the `EndControl` handler)
-- **Severity:** High. It fabricates frames that do not exist.
+Found during a reconciliation pass against a real 7.41 client and the `darkages-741-re`
+file-format documentation, reported when the C# source was at `v1.0.0-beta2`. Upstream took all
+six across `523b149` ("Fix six file-format bugs found by the dalib-ts 7.41 reconciliation"),
+`ee57157` and `caa5380`. Verified against the C# source at `a59728e` on 2026-08-10.
 
-### Problem
+| # | Finding | Adopted as |
+| --- | --- | --- |
+| 1 | `ControlFileParser` expanded `<IMAGE>` as a frame range, not an ordered list, fabricating frames that do not exist (`0, 1, 3` → `0, 1, 2, 3`) and shifting every later button state | The range fill is deleted; the list is kept as parsed |
+| 2 | Ground tiles rendered palette index 0 as transparent and applied no isometric mask, leaving holes plus garbage outside the diamond | A dedicated `RenderTile` replaces the `SimpleRender` call, masking to the diamond and drawing index 0 opaque. `SimpleRender` keeps the index-0 rule, which is correct for sprites |
+| 3 | `MapFile` read tile IDs as signed `short`, so any `stc` foreground id above 32767 read negative, and rejected any file whose length was not exactly `width * height * 6` | IDs read as `ushort`; the length check rejects only files too short to hold the cell array |
+| 4 | `HeaFile` used the full run byte as the light value, so a set flag bit corrupted the intensity | Masked with `& 0x3F` |
+| 5 | `SpfFile` decode used absolute `Right`/`Bottom` as dimensions and read pixels contiguously, ignoring `Left`/`Top` and the `ByteWidth` pitch | Both readers use the visible rectangle and skip row padding; palettized frames de-pad through `CompactPalettizedRows` |
+| 6 | `PaletteTable` split each line on a single space, so a trailing `// comment` or a run of spaces silently dropped the entry | A `Tokenize` helper strips the comment and splits on whitespace runs |
 
-The parser reads the first and last `FrameIndex` for each image name. It then fills the whole
-inclusive range:
-
-```csharp
-for (var i = startNum; i <= endNum; i++)
-    expandedImages.Add(/* frame i */);
-```
-
-The `<IMAGE>` block is an ordered list of frames, not a start/end range. A sparse list like
-`0, 1, 3` becomes `0, 1, 2, 3`. The extra frame `2` does not exist. This shifts every later frame
-and breaks button states in UI controls (for example `_nemot.spf`).
-
-### Fix
-
-Keep the image list as read. Do not fill the gap between the first and last index.
+Finding 5 travelled in both directions. Upstream's follow-up (`ee57157`) also corrected the
+colorized `ImageByteCount` to `pixelCount * 2`, which **`dalib-ts` had wrong** — it wrote a pixel
+count, halving the field on every save. Fixed here in 3.1.1.
 
 ---
 
-## 2. Ground tiles render palette index 0 as transparent, and apply no diamond mask
+## 2. Still open upstream
 
-- **File:** `DALib/Drawing/Graphics.cs:1184` (in the `byte[]` overload of `SimpleRender`)
-- **Severity:** High. It affects every background tile.
+### 2.1 `PaletteTable` range expansion has no allocation cap
 
-### Problem
+- **File:** `DALib/Drawing/PaletteTable.cs`, the `min..paletteNumOrMax` expansion
+- **Severity:** Medium. Denial of service against a hostile or corrupt archive, not code execution.
 
-`SimpleRender` forces palette index 0 to transparent for all palettized renders:
+A `min max palette` line expands one map entry per id with no bound, so a crafted `.tbl` holding
+`1 999999999 5` exhausts memory or ties up the process. `Tokenize` (finding 6) landed; the cap
+did not. Tracked internally as HTOO-163, whose dalib-ts half shipped in 3.1.1.
 
-```csharp
-var color = paletteIndex == 0 ? CONSTANTS.Transparent : palette[paletteIndex];
-```
+**The bounds are measured against a retail 7.41 install, and are reusable directly:**
 
-This rule is correct for sprites. It is wrong for ground and background tiles. On a ground tile,
-index 0 is an ordinary opaque color. The client draws it. C# drops it and leaves holes.
+| Measurement | Value |
+| --- | --- |
+| Widest span in a real palette table | 527 (`ia.dat:stspal.tbl`) |
+| Widest span in any `.tbl` | 3,196 (`cious.dat:rs_linfo.tbl`) |
+| Largest id of any kind | 20,424 |
+| Largest whole-file iteration count | 140,724 (`ia.dat:stcpal.tbl`) |
 
-`SimpleRender` also applies no isometric mask. The pixels outside the tile diamond stay in the
-output as garbage. The client masks them to transparent.
+`dalib-ts` uses 65,536 per line and 1,000,000 per file. **Two traps worth copying rather than
+rediscovering:**
 
-### Fix
+- **Count iterations, not distinct ids.** Retail ranges overlap heavily — `stcpal.tbl` iterates
+  140,724 times to produce far fewer keys — so an aggregate cap written against distinct ids
+  would sit near 20,000 and reject real data.
+- **Drop the offending line; do not fail the file.** A stock install contains **163 reversed
+  ranges, none of them in a palette table** — they are in `MobTile.tbl` (106), `meffect.tbl` (15)
+  and the `skill*.tbl` family, which share the extension but not the grammar. Those lines produced
+  nothing before any guard, because the loop simply did not execute. Rejecting the file would be a
+  regression against stock data.
 
-Add a color-key flag to the tile render path. Draw index 0 opaque for tiles. Mask the pixels
-outside the isometric diamond to transparent.
+Checked equivalent across 331 retail `.tbl` files and 81,985 ids: zero mappings changed.
 
----
+### 2.2 `PaletteResolver` diverges from the frozen ruleId contract
 
-## 3. MapFile reads tile IDs as signed, and rejects trailing bytes
+- **File:** `DALib.Tests/PaletteResolverTests.cs`
+- **Severity:** Medium. Two libraries name the same rule differently.
 
-- **File:** `DALib/Data/MapFile.cs:34` (length check), `:42-44` (reads), `:145/:150/:155` (`short` fields)
-- **Severity:** High. Signed reads are provably wrong for real maps.
+`tests/fixtures/palette-resolution.json` in this repo is the cross-port conformance fixture: the
+ruleId strings are a frozen contract, because a host reports the ruleId so that a wrong palette
+guess is reportable rather than merely wrong. The C# port (`caa5380`) builds its own fixtures
+instead of reading it, and four ids diverge:
 
-### Problem 3a — signed tile IDs
+| dalib-ts (contract) | C# |
+| --- | --- |
+| `setoa/album_b` | `setoa/album` |
+| `legend/clock01` | `legend/emo` |
+| `misc/legend` | `misc/all` |
+| `national/legend` | `national/all` |
 
-The map cell fields are `short` (signed int16). The foreground index uses the name pattern
-`stc{index:D5}`, so it holds five digits (up to 99999). Any value above 32767 reads as a negative
-number. The client reads these IDs as unsigned (`file_read_map_cells`).
+Either side can be the winner, but they have to agree, and the fixture is the artifact that keeps
+them agreeing. Reconciling the names is a cross-repo decision.
 
-### Problem 3b — strict length check
+### 2.3 `PaletteResolver` covers `.epf` only
 
-The constructor rejects any file whose length is not exactly `width * height * 6`:
+- **File:** `DALib/Drawing/PaletteResolver.cs`
+- **Severity:** Low. A gap, not a defect.
 
-```csharp
-if (stream.Length != (width * height * 6)) throw ...;
-```
-
-Real map files carry trailing bytes. The client accepts them. The check must reject only files
-that are too short.
-
-### Fix
-
-Read the tile IDs as unsigned. Change the length check to reject only short files.
-
----
-
-## 4. HeaFile does not mask the run intensity with `& 0x3F`
-
-- **File:** `DALib/Drawing/HeaFile.cs:198` (raw read), `:207` (`.Fill(value)`), `:24` (`MAX_LIGHT_VALUE = 0x20`)
-- **Severity:** Medium. Confirm against a real `.hea` sample before you patch.
-
-### Problem
-
-The decoder uses the full run byte as the light value. The `darkages-741-re` documentation states
-that the top two bits are flags. `MAX_LIGHT_VALUE` is `0x20`, so a set flag bit corrupts the
-intensity.
-
-### Fix
-
-Mask the run byte with `& 0x3F` before you use it as the light value.
-
-> Note: the flag claim comes from the reverse-engineering docs, not from a live client trace. Test
-> with real `.hea` data before you commit.
+Its own comment records that `.hpf`, `.mpf` and tilesets are specified but unimplemented.
+`dalib-ts` implements all of them — `hpf/stc`, `hpf/sts`, `mpf/mns`, `tileset/mpt`, `tileset/mps`.
 
 ---
 
-## 5. SpfFile decode ignores Left/Top and the row pitch
+## 3. Checked and NOT reported
 
-- **File:** `DALib/Drawing/SpfFile.cs:143-150` (`ReadColorized`), `:200-205` (`ReadPalettized`);
-  mirrored in `DALib/Drawing/Virtualized/SpfView.cs:174, :181-183`
-- **Severity:** Medium. It only affects frames with a nonzero origin or a padded pitch.
-
-### Problem
-
-The decode loops use the absolute `Right` and `Bottom` as the dimensions. They must use
-`Right - Left` and `Bottom - Top`. The loops also read pixels contiguously. They never use
-`ByteWidth` (the pitch) for the row stride, and they ignore `Left` and `Top`. Frames with a
-nonzero origin or a padded pitch decode wrong.
-
-### Fix
-
-Use `Right - Left` and `Bottom - Top` for the frame size. Advance each row by `ByteWidth`. Honor
-`Left` and `Top` for the destination offset.
-
----
-
-## 6. PaletteTable does not strip `//` comments or tolerate whitespace runs
-
-- **File:** `DALib/Drawing/PaletteTable.cs:75-77` (the split and guard); the same flaw is in
-  `ParseCyclingFile` at `:356-377`
-- **Severity:** Low. Confirm that real `.tbl` assets contain comments before you patch.
-
-### Problem
-
-The parser splits each line on a single space and handles only two- or three-token lines:
-
-```csharp
-var parts = line.Split(' ');
-```
-
-A trailing `// comment` produces four or more tokens. The line falls through the switch and the
-entry drops silently. A run of spaces produces empty tokens, and `int.TryParse` fails.
-
-### Fix
-
-Strip a `//` comment before you split. Split on runs of whitespace, or drop the empty tokens.
-
----
-
-## Checked and NOT reported
-
-These items look similar but are not C# bugs. The list saves you the search.
+These look similar but are not C# defects. The list saves the search.
 
 | Item | Why it is not a bug in C# |
-|------|---------------------------|
-| SPF mode read as one `uint32` vs two `uint8` (`SpfFile.cs:80`) | The `uint32` values `0` and `2` classify the same as the per-byte read for every real 7.41 asset. No known file differs. |
-| MetaFile non-ASCII write (`MetaFile.cs:97-113`) | C# derives the `uint16` length prefix from the CP949-encoded bytes and writes those same bytes. The prefix always matches. C# is already safe. |
-| Palette `.tbl` IDs one-based on disk | C# does not subtract 1 (`PaletteLookup.cs:51-79`). The `dalib-ts` port matches this on purpose. It is a shared, documented divergence, not a C# bug. |
+| --- | --- |
+| SPF mode read as one `uint32` vs two `uint8` | The `uint32` values `0` and `2` classify the same as the per-byte read for every real 7.41 asset. No known file differs. |
+| MetaFile non-ASCII write | C# derives the `uint16` length prefix from the CP949-encoded bytes and writes those same bytes. The prefix always matches. |
+| Palette `.tbl` IDs one-based on disk | C# does not subtract 1, and `dalib-ts` matches this on purpose. A shared, documented divergence from the client, not a defect. |
+| `CompactPalettizedRows` at parse vs at render | C# de-pads palettized rows while parsing; `dalib-ts` de-pads in `renderSpfPalettized`. **Zero row-padded frames exist in 1,671 retail frames**, so neither path ever runs. The `dalib-ts` choice keeps a padded source byte-exact through a round trip. A deliberate divergence. |
 
 ---
 
-*Source: `dalib-ts` reconciliation against `darkages-741-re` and a real 7.41 client install. Each
-finding above was re-verified against the current C# `DALib` source.*
+## Out of scope for dalib-ts
+
+`DALib/Networking` (~160 packet classes plus crypto) and the **Foscail** CLI have no `dalib-ts`
+counterpart and are not tracked here. See `docs/plans/dalib-ts-followups.md` for the networking
+decision.
+
+---
+
+*Findings are verified against a real 7.41 client install and re-checked against the current C#
+source before being listed as open. Confirm line numbers against your own checkout.*
