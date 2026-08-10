@@ -76,7 +76,7 @@ function buildColorizedSpf(width: number, height: number): Uint8Array {
   writer.writeUInt32LE(0);         // startAddress
   writer.writeUInt32LE(width * 2); // byteWidth
   writer.writeUInt32LE(byteCount); // byteCount
-  writer.writeUInt32LE(pixelCount); // imageByteCount
+  writer.writeUInt32LE(pixelCount * 2); // imageByteCount: one copy, 2 bytes per pixel
 
   writer.writeUInt32LE(byteCount); // total byte count
 
@@ -330,7 +330,7 @@ describe('SpfFile', () => {
       writer.writeUInt32LE(0);          // startAddress
       writer.writeUInt32LE(stride);     // byteWidth — the pitch
       writer.writeUInt32LE(byteCount);
-      writer.writeUInt32LE(w * h);
+      writer.writeUInt32LE(w * h * 2);  // imageByteCount: one copy, 2 bytes per pixel
       writer.writeUInt32LE(byteCount);
 
       // Each row is a distinct color, then `padding` bytes of filler. If a reader
@@ -398,7 +398,8 @@ describe('SpfFile', () => {
       const h = 4 - 1;
 
       expect(frame.byteWidth).toBe(w * 2);
-      expect(frame.imageByteCount).toBe(w * h);
+      // Bytes in one pixel copy, at 2 bytes per colorized pixel — not a pixel count.
+      expect(frame.imageByteCount).toBe(w * h * 2);
       expect(frame.byteCount).toBe(w * h * 4);
     });
 
@@ -510,7 +511,8 @@ describe('SpfFile', () => {
     it('reserves room for both the RGB565 and the RGB555 copy', () => {
       const spf = SpfFile.fromColorizedRgbaFrames([row([[1, 2, 3, 255], [4, 5, 6, 255]])]);
       expect(spf.frames[0]!.byteCount).toBe(2 * 1 * 4);
-      expect(spf.frames[0]!.imageByteCount).toBe(2);
+      // One copy of two 2-byte pixels.
+      expect(spf.frames[0]!.imageByteCount).toBe(2 * 1 * 2);
       expect(spf.frames[0]!.byteWidth).toBe(2 * 2);
     });
 
@@ -524,6 +526,24 @@ describe('SpfFile', () => {
 
     it('handles an empty frame list', () => {
       expect(SpfFile.fromColorizedRgbaFrames([]).frames).toHaveLength(0);
+    });
+
+    // Every colorized frame in a retail 7.41 install records `w * h * 2` here — the
+    // bytes in one pixel copy, at 2 bytes per pixel. Writing the pixel count instead
+    // halved the field on every save, so a read/write cycle over a shipped file
+    // changed its header while leaving the pixels correct. Measured across all 12
+    // colorized frames in the client; the 1,659 palettized frames record 0 and are
+    // passed through untouched.
+    it('records imageByteCount in bytes, so a shipped header survives a save', () => {
+      const w = 3;
+      const h = 2;
+      const rgba = { width: w, height: h, data: new Uint8ClampedArray(w * h * 4) };
+      const written = SpfFile.fromColorizedRgbaFrames([rgba]).toUint8Array();
+      const frame = SpfFile.fromBuffer(written).frames[0]!;
+
+      expect(frame.imageByteCount).toBe(w * h * 2);
+      expect(frame.byteCount).toBe(w * h * 4);
+      expect(frame.imageByteCount * 2).toBe(frame.byteCount);
     });
   });
 
