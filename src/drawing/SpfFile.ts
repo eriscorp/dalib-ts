@@ -257,7 +257,9 @@ export class SpfFile {
       const w = spfFrameWidth(frame);
       const h = spfFrameHeight(frame);
       frame.byteWidth = w * 2;
-      frame.imageByteCount = w * h;
+      // Bytes in one pixel copy, not pixels: colorized pixels are 2 bytes each.
+      // Every colorized frame in a retail 7.41 install stores `w * h * 2` here.
+      frame.imageByteCount = w * h * 2;
       frame.byteCount = w * h * 4; // the RGB565 copy plus the RGB555 copy
 
       frame.startAddress = startAddress;
@@ -351,7 +353,7 @@ export class SpfFile {
         startAddress: 0,
         byteWidth: w * 2,
         byteCount: w * h * 4, // RGB565 copy + RGB555 copy
-        imageByteCount: w * h,
+        imageByteCount: w * h * 2, // bytes in one copy, at 2 bytes per pixel
         colorData,
       };
       spf.frames.push(frame);

@@ -4,6 +4,36 @@ All notable changes to `@eriscorp/dalib-ts` will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **`PaletteTable` range expansion is bounded.** A `min max palette` line expanded
+  id by id with no cap, so a crafted or corrupt `.tbl` holding `1 999999999 5`
+  filled a map with a billion entries. Both caps are measured against a retail 7.41
+  install rather than chosen: the widest span in a real palette table is 527, the
+  widest in any `.tbl` is 3,196, and the largest id of any kind is 20,424, so a line
+  may expand to 65,536 ids. The whole-file cap counts iterations rather than distinct
+  ids, because retail ranges overlap heavily — `ia.dat:stcpal.tbl` iterates 140,724
+  times to produce far fewer keys — and sits at 1,000,000. A refused line is dropped
+  on its own and parsing continues, which also covers the 163 reversed ranges a stock
+  install carries in `.tbl` files that are not palette tables. Verified to change no
+  mappings across 331 retail `.tbl` files and 81,985 ids.
+- **`PaletteResolver` finds sibling archives whatever their casing.** The rules name
+  siblings as lowercase literals, but the official installer writes `Legend.dat`, so
+  on a case-sensitive filesystem `khan/pants`, `khan/body`, `national/legend` and
+  `misc/legend` silently failed to resolve and the host fell back to a manual picker.
+  `ArchiveProvider` now documents that names arrive lowercase and must be matched
+  case-insensitively, and the resolver retries the casings seen in the wild as a
+  safety net. A provider on a case-insensitive filesystem is still called exactly
+  once, and a miss is cached under the requested name rather than re-probed.
+- **Colorized `.spf` frames record `imageByteCount` in bytes, not pixels.** The writer
+  stored `width * height` where every colorized frame in a retail install stores
+  `width * height * 2` — the bytes in one pixel copy. A read/write cycle therefore
+  halved the field in a shipped file while leaving the pixels correct. All 12
+  colorized frames in the client now round-trip byte-identically. Palettized frames,
+  which record `0`, are unaffected and still pass through untouched.
+
 ## [3.1.0] - 2026-07-28
 
 Automatic palette resolution for legacy archives, ported from the rules
