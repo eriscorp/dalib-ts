@@ -579,13 +579,15 @@ export function getGlyphIndex(font: FntFile, c: string): number {
       const lead = encoded[0]!;
       const trail = encoded[1]!;
 
-      // Hangul Jamo: lead=0xA4, trail 0xA1-0xD3 → indices 0-50
-      if (lead === 0xA4 && trail >= 0xA1 && trail <= 0xD3) return trail - 0xA1;
+      // The shipped han*.fnt face stores the 2350 syllables first and the 51 Jamo after them.
 
-      // Hangul syllables: lead 0xB0-0xC8, trail 0xA1-0xFE → indices 51-2400
+      // Hangul syllables: lead 0xB0-0xC8, trail 0xA1-0xFE → indices 0-2349
       if (lead >= 0xB0 && lead <= 0xC8 && trail >= 0xA1 && trail <= 0xFE) {
-        return 51 + (lead - 0xB0) * 94 + (trail - 0xA1);
+        return (lead - 0xB0) * 94 + (trail - 0xA1);
       }
+
+      // Hangul Jamo: lead=0xA4, trail 0xA1-0xD3 → indices 2350-2400
+      if (lead === 0xA4 && trail >= 0xA1 && trail <= 0xD3) return 2350 + (trail - 0xA1);
 
       return -1;
     } catch {

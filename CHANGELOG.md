@@ -21,6 +21,12 @@ placeholder that holds an animation index, not padding to be discarded.
   at 3, 4 and 5, so what the file calls frame 6 previously arrived as `frames[3]`.
   `EpfView.get` now returns the empty frame directly rather than slicing the TOC range,
   matching where upstream moved the guard.
+- **Korean glyphs map to the right slots.** The shipped `han*.fnt` face stores the 2,350
+  Hangul syllables at glyphs 0–2349 and the 51 Jamo at 2350–2400; `getGlyphIndex` had
+  the blocks the other way round, so every syllable rendered 51 glyphs late (한 is glyph
+  2210 and was drawn from 2261). Nothing threw, because the wrong mapping covers the same
+  2,401 indexes. Upstream DALib's `GetGlyphIndex` has the same inversion as of `9a2a72d`
+  and is being fixed in parallel.
 
 ### Changed
 
