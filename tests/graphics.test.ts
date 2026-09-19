@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { renderColorized, renderEpf, renderPalettized } from '../src/drawing/Graphics.js';
 import { Palette } from '../src/drawing/Palette.js';
 import type { EpfFrame } from '../src/drawing/EpfFrame.js';
+import { EpfFile } from '../src/drawing/EpfFile.js';
 import { AlphaMode } from '../src/enums.js';
 
 describe('renderEpf', () => {
@@ -25,6 +26,26 @@ describe('renderEpf', () => {
     expect(out.width).toBe(1);
     expect(out.height).toBe(1);
     expect(out.data[3]).toBe(0);
+  });
+
+  // Parse preserves empty frames and this guard catches them: the pair is only closed if the
+  // guard fires on a frame that came out of the parser, which is how a caller meets one.
+  it('guards an empty frame that came out of the parser', () => {
+    const source = new EpfFile();
+    source.pixelWidth = 12;
+    source.pixelHeight = 14;
+    source.frames.push({ top: 0, left: 0, bottom: 1, right: 2, data: new Uint8Array([1, 1]) });
+    source.frames.push({ top: 0, left: -12, bottom: 0, right: -12, data: new Uint8Array(0) });
+
+    const parsed = EpfFile.fromBuffer(source.toUint8Array());
+    expect(parsed.frames).toHaveLength(2);
+
+    const rendered = parsed.frames.map(f => renderEpf(f, palette));
+    expect(rendered[0]).toMatchObject({ width: 2, height: 1 });
+    expect(rendered[1]!.width).toBe(1);
+    expect(rendered[1]!.height).toBe(1);
+    expect(rendered[1]!.data).toHaveLength(4);
+    expect(rendered[1]!.data[3]).toBe(0);
   });
 
   it('renders a non-degenerate frame normally', () => {

@@ -81,6 +81,33 @@ describe('EpfView', () => {
   it('throws when the entry is missing', () => {
     expect(() => EpfView.fromArchive('nope', buildArchive([]))).toThrow(/not found/);
   });
+
+  // The TOC index is the frame index, so a zero-area placeholder keeps its slot and get()
+  // hands back an empty frame rather than the next frame's pixels.
+  it('keeps a zero-area frame in the TOC and returns it with empty data', () => {
+    const epf = new EpfFile();
+    epf.pixelWidth = 8;
+    epf.pixelHeight = 6;
+    epf.frames.push({ top: 0, left: 0, bottom: 2, right: 3, data: new Uint8Array([1, 2, 3, 4, 5, 6]) });
+    epf.frames.push({ top: 0, left: -8, bottom: 0, right: -8, data: new Uint8Array(0) });
+    // Either dimension alone being zero makes the frame a placeholder.
+    epf.frames.push({ top: 2, left: 0, bottom: 2, right: 3, data: new Uint8Array(0) });
+    epf.frames.push({ top: 1, left: 1, bottom: 3, right: 3, data: new Uint8Array([7, 8, 9, 10]) });
+
+    const bytes = epf.toUint8Array();
+    const view = EpfView.fromArchive('sprite', buildArchive([{ name: 'sprite.epf', data: bytes }]));
+    const eager = EpfFile.fromBuffer(bytes);
+
+    expect(view.count).toBe(4);
+    expect(view.get(1)).toMatchObject({ top: 0, left: -8, bottom: 0, right: -8 });
+    expect(view.get(1).data).toHaveLength(0);
+    expect(view.get(2).data).toHaveLength(0);
+    expect(Array.from(view.get(3).data)).toEqual([7, 8, 9, 10]);
+
+    for (let i = 0; i < eager.frames.length; i++) {
+      expect(Array.from(view.get(i).data)).toEqual(Array.from(eager.frames[i]!.data));
+    }
+  });
 });
 
 describe('SpfView', () => {

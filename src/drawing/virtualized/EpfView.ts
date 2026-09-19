@@ -41,9 +41,16 @@ export class EpfView {
   get(index: number): EpfFrame {
     if (index < 0 || index >= this.toc.length) throw new RangeError(`EPF frame index ${index} out of range`);
     const t = this.toc[index]!;
-    const buf = this.entry.toUint8Array();
     const width = t.right - t.left;
     const height = t.bottom - t.top;
+
+    // Empty-frame marker: the TOC entry is preserved, but the frame has no pixel data.
+    // Callers should check width/height before rendering.
+    if (width === 0 || height === 0) {
+      return { top: t.top, left: t.left, bottom: t.bottom, right: t.right, data: new Uint8Array(0) };
+    }
+
+    const buf = this.entry.toUint8Array();
     const dataLen = (t.endAddress - t.startAddress) === width * height
       ? t.endAddress - t.startAddress
       : this.tocAddress - t.startAddress;
@@ -83,7 +90,11 @@ export class EpfView {
       const startAddress = reader.readInt32LE();
       const endAddress = reader.readInt32LE();
 
-      if ((right - left) === 0 || (bottom - top) === 0) continue;
+      // Empty frames (width === 0 || height === 0) are preserved in the TOC so that direct-index
+      // access by animation-frame index stays stable: dropping one shifts every later index and
+      // either mis-renders or masks a later frame. get() returns them with an empty data array.
+      // Upstream reads them as a "no visual on this pose" marker for weapons and equipment; what
+      // the client does with them has not been confirmed here.
       toc.push({ top, left, bottom, right, startAddress, endAddress });
     }
 
