@@ -1,6 +1,7 @@
 import { SpanReader } from '../io/SpanReader.js';
 import { SpanWriter } from '../io/SpanWriter.js';
 import { MetaFileEntry } from './MetaFileEntry.js';
+import { nodeFs, nodeZlib } from '../io/nodeBuiltins.js';
 
 /**
  * A collection of metadata entries. Binary format with EUC-KR (CP949) string encoding.
@@ -98,8 +99,7 @@ export class MetaFile {
    */
   static fromCompressedBuffer(buffer: ArrayBuffer | Uint8Array): MetaFile {
     const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const zlib = require('node:zlib') as typeof import('zlib');
+    const zlib = nodeZlib();
     const decompressed = new Uint8Array(zlib.inflateSync(bytes));
     return MetaFile.parseBytes(decompressed);
   }
@@ -137,8 +137,7 @@ export class MetaFile {
    * **Node.js only.**
    */
   static fromFile(path: string, isCompressed = true): MetaFile {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const fs = require('node:fs') as typeof import('fs');
+    const fs = nodeFs();
     const buf = fs.readFileSync(path);
     const bytes = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
     return isCompressed ? MetaFile.fromCompressedBuffer(bytes) : MetaFile.fromBuffer(bytes);

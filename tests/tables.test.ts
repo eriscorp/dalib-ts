@@ -71,8 +71,23 @@ describe('EffectTable', () => {
   });
 
   it('round-trips through text', () => {
-    const reparsed = EffectTable.fromBuffer(EffectTable.fromBuffer(enc(TEXT)).toUint8Array());
+    const once = EffectTable.fromBuffer(enc(TEXT));
+    const reparsed = EffectTable.fromBuffer(once.toUint8Array());
+    expect(once.count).toBe(3);
+    expect(reparsed.count).toBe(once.count);
     expect(reparsed.tryGetEntry(1)!.frameSequence).toEqual([1, 2, 3]);
+  });
+
+  it('reads a final line terminator as the end of the last line, not as one more effect', () => {
+    expect(EffectTable.fromBuffer(enc('2\n1\n2')).count).toBe(2);
+    expect(EffectTable.fromBuffer(enc('2\n1\n2\n')).count).toBe(2);
+    expect(EffectTable.fromBuffer(enc('2\r\n1\r\n2\r\n')).count).toBe(2);
+  });
+
+  it('keeps a last effect slot that is really empty', () => {
+    const table = EffectTable.fromBuffer(enc('3\n1\n2\n\n'));
+    expect(table.count).toBe(3);
+    expect(table.tryGetEntry(3)!.frameSequence).toEqual([]);
   });
 });
 

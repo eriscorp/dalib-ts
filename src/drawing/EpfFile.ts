@@ -6,6 +6,7 @@ import { cropTransparentPixels, preserveNonTransparentBlacks, quantizeFrames } f
 import type { Palettized } from '../utility/Palettized.js';
 import type { EpfFrame } from './EpfFrame.js';
 import { epfFrameHeight, epfFrameWidth } from './EpfFrame.js';
+import { nodeFs } from '../io/nodeBuiltins.js';
 
 const HEADER_LENGTH = 12;
 
@@ -136,8 +137,7 @@ export class EpfFile {
   }
 
   static fromFile(path: string): EpfFile {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const fs = require('node:fs') as typeof import('fs');
+    const fs = nodeFs();
     const buf = fs.readFileSync(path);
     return EpfFile.fromBuffer(new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength));
   }

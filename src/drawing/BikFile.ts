@@ -1,6 +1,7 @@
 import type { DataArchive } from '../data/DataArchive.js';
 import type { DataArchiveEntry } from '../data/DataArchiveEntry.js';
 import { SpanReader } from '../io/SpanReader.js';
+import { nodeFs } from '../io/nodeBuiltins.js';
 
 const BIK_HEADER_LENGTH = 44;
 
@@ -82,8 +83,7 @@ export class BikFile {
 
   /** Load from a file path. **Node.js only**. */
   static fromFile(path: string): BikFile {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const fs = require('node:fs') as typeof import('fs');
+    const fs = nodeFs();
     const buf = fs.readFileSync(path);
     return BikFile.fromBuffer(new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength));
   }

@@ -1,6 +1,7 @@
 import type { DataArchive } from '../data/DataArchive.js';
 import type { DataArchiveEntry } from '../data/DataArchiveEntry.js';
 import { SpanReader } from '../io/SpanReader.js';
+import { nodeFs } from '../io/nodeBuiltins.js';
 
 /** Number of glyph records in an LFT file: keys 0x0000 through 0xFFFE. */
 export const LFT_GLYPH_COUNT = 65535;
@@ -189,8 +190,7 @@ export class LftFile {
 
   /** Load from a file path. **Node.js only**. */
   static fromFile(path: string): LftFile {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const fs = require('node:fs') as typeof import('fs');
+    const fs = nodeFs();
     const buf = fs.readFileSync(path);
     return LftFile.fromBuffer(new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength));
   }

@@ -1,6 +1,7 @@
 import type { DataArchive } from '../data/DataArchive.js';
 import type { DataArchiveEntry } from '../data/DataArchiveEntry.js';
 import { EffectTableEntry } from './EffectTableEntry.js';
+import { nodeFs } from '../io/nodeBuiltins.js';
 
 /**
  * A table of effect frame orders. Text-format (.tbl) file.
@@ -68,6 +69,8 @@ export class EffectTable {
   private static parseText(text: string): EffectTable {
     const table = new EffectTable();
     const lines = text.split(/\r?\n/);
+    // A final line terminator ends the last line. It does not start one more line (C# ReadLine).
+    if (lines[lines.length - 1] === '') lines.pop();
     let lineIndex = 0;
 
     // Skip the count line
@@ -110,8 +113,7 @@ export class EffectTable {
   }
 
   static fromFile(path: string): EffectTable {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const fs = require('node:fs') as typeof import('fs');
+    const fs = nodeFs();
     const buf = fs.readFileSync(path);
     return EffectTable.fromBuffer(new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength));
   }

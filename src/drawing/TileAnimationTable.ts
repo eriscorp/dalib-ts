@@ -1,6 +1,7 @@
 import type { DataArchive } from '../data/DataArchive.js';
 import type { DataArchiveEntry } from '../data/DataArchiveEntry.js';
 import { TileAnimationEntry } from './TileAnimationEntry.js';
+import { nodeFs } from '../io/nodeBuiltins.js';
 
 /**
  * A table of tile animation sequences. Text-format (.tbl) file.
@@ -91,8 +92,7 @@ export class TileAnimationTable {
   }
 
   static fromFile(path: string): TileAnimationTable {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const fs = require('node:fs') as typeof import('fs');
+    const fs = nodeFs();
     const buf = fs.readFileSync(path);
     return TileAnimationTable.fromBuffer(new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength));
   }

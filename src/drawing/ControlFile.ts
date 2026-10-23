@@ -2,6 +2,7 @@ import { ControlType } from '../enums.js';
 import type { DataArchive } from '../data/DataArchive.js';
 import type { DataArchiveEntry } from '../data/DataArchiveEntry.js';
 import { Control } from './Control.js';
+import { nodeFs } from '../io/nodeBuiltins.js';
 
 /**
  * A parsed collection of UI Controls from a Dark Ages control text file (.txt).
@@ -179,8 +180,7 @@ export class ControlFile {
   }
 
   static fromFile(path: string): ControlFile {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const fs = require('node:fs') as typeof import('fs');
+    const fs = nodeFs();
     const buf = fs.readFileSync(path);
     return ControlFile.fromBuffer(new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength));
   }

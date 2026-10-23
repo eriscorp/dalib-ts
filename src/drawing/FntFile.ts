@@ -1,5 +1,6 @@
 import type { DataArchive } from '../data/DataArchive.js';
 import type { DataArchiveEntry } from '../data/DataArchiveEntry.js';
+import { nodeFs } from '../io/nodeBuiltins.js';
 
 /**
  * A headerless 1-bit-per-pixel glyph bitmap font file (.fnt).
@@ -97,8 +98,7 @@ export class FntFile {
   }
 
   static fromFile(path: string, glyphWidth: number, glyphHeight: number): FntFile {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const fs = require('node:fs') as typeof import('fs');
+    const fs = nodeFs();
     const buf = fs.readFileSync(path);
     return FntFile.fromBuffer(new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength), glyphWidth, glyphHeight);
   }

@@ -5,6 +5,7 @@ import type { DataArchiveEntry } from '../data/DataArchiveEntry.js';
 import { preserveNonTransparentBlacks, quantizeFrames } from '../utility/ImageProcessor.js';
 import type { Palettized } from '../utility/Palettized.js';
 import { Tile } from './Tile.js';
+import { nodeFs } from '../io/nodeBuiltins.js';
 
 /**
  * A collection of palette-indexed ground tiles read from a .bmp file.
@@ -57,8 +58,7 @@ export class Tileset {
   }
 
   static fromFile(path: string): Tileset {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const fs = require('node:fs') as typeof import('fs');
+    const fs = nodeFs();
     const buf = fs.readFileSync(path);
     return Tileset.fromBuffer(new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength));
   }

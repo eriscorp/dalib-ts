@@ -5,6 +5,7 @@ import { SpanReader } from '../io/SpanReader.js';
 import { SpanWriter } from '../io/SpanWriter.js';
 import { encodeRgb565 } from '../utility/ColorCodec.js';
 import type { EfaFrame } from './EfaFrame.js';
+import { nodeFs, nodeZlib } from '../io/nodeBuiltins.js';
 
 /**
  * A fully colorized, zlib-compressed animated sprite file (.efa).
@@ -139,8 +140,7 @@ export class EfaFile {
   }
 
   static fromFile(path: string): EfaFile {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const fs = require('node:fs') as typeof import('fs');
+    const fs = nodeFs();
     const buf = fs.readFileSync(path);
     return EfaFile.fromBuffer(new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength));
   }
@@ -270,8 +270,7 @@ export class EfaFile {
 
 function getInflateSync(): (data: Uint8Array) => Uint8Array {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const zlib = require('node:zlib') as typeof import('zlib');
+    const zlib = nodeZlib();
     return (data: Uint8Array) => new Uint8Array(zlib.inflateSync(data));
   } catch {
     throw new Error(
@@ -283,8 +282,7 @@ function getInflateSync(): (data: Uint8Array) => Uint8Array {
 
 function getDeflateSync(): (data: Uint8Array) => Uint8Array {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const zlib = require('node:zlib') as typeof import('zlib');
+    const zlib = nodeZlib();
     return (data: Uint8Array) =>
       new Uint8Array(zlib.deflateSync(data, { level: 9 }));
   } catch {

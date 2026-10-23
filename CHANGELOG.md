@@ -4,6 +4,19 @@ All notable changes to `@eriscorp/dalib-ts` will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`PaletteTable.cyclingEntriesFromBuffer` and `PaletteTable.cyclingEntriesFromEntry`** read one palette cycling file (for example `mpt001.tbl`). Before, the only reader was `fromArchive`, which loads the full family. Both use the parser that `fromArchive` uses.
+- **`npm run test:dist`** loads the built `dist/` through the ESM entry and the CJS entry in a plain Node process. CI runs it after the build.
+
+### Fixed
+
+- **The ESM entry can read files and inflate data.** The `fromFile` factories, `MetaFile.fromCompressedBuffer`, and the sync inflate and deflate in `EfaFile` and `EfaView` called `require('node:fs' | 'node:path' | 'node:zlib')`. The ESM bundle has no `require`, so each call threw "Dynamic require of ... is not supported". The CJS entry was correct. These calls now get the module from `process.getBuiltinModule` (Node 20.16+ and 22.3+), and use `require` only on an older Node. On an older Node, these paths still work only through the CJS entry.
+- **`decompressHpf` throws on a truncated stream.** It read past the end of the input, and a typed array returns `undefined` there, which decodes as zero bits without end. A short `.hpf` entry hung the thread that opened it. The C# original throws at the same read. All 22,665 HPF entries in a 7.41 client decode to the same bytes as before, and the new check fires on none of them.
+- **`EffectTable` does not add an effect for a final line terminator.** Text that ends with a terminator parsed to one more effect than its count line. `toText` always writes a final terminator, so each save and load added one empty effect. A last slot that is really empty (`3\n1\n2\n\n`) still reads as an empty effect. Taliesin removes one final terminator before it calls `EffectTable.fromBuffer`. Remove that workaround when Taliesin takes this version, or a file whose last effect is empty loses that effect.
+
 ## [3.2.0] - 2026-09-15
 
 EPF parsing regains parity with upstream DALib `c9c62ee`: a zero-dimension frame is a

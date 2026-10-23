@@ -1,5 +1,6 @@
 import type { DataArchive } from '../data/DataArchive.js';
 import type { DataArchiveEntry } from '../data/DataArchiveEntry.js';
+import { nodeFs } from '../io/nodeBuiltins.js';
 
 const JPF_PREFIX_LENGTH = 4;
 
@@ -56,8 +57,7 @@ export class JpfFile {
 
   /** Load from a file path. **Node.js only**. */
   static fromFile(path: string): JpfFile {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const fs = require('node:fs') as typeof import('fs');
+    const fs = nodeFs();
     const buf = fs.readFileSync(path);
     return JpfFile.fromBuffer(new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength));
   }

@@ -2,6 +2,7 @@ import { SpanReader } from '../io/SpanReader.js';
 import { SpanWriter } from '../io/SpanWriter.js';
 import type { DataArchive } from '../data/DataArchive.js';
 import type { DataArchiveEntry } from '../data/DataArchiveEntry.js';
+import { nodeFs } from '../io/nodeBuiltins.js';
 
 /**
  * A light/alpha map file (.hea) defining per-pixel light intensity for map darkness and lantern illumination.
@@ -156,8 +157,7 @@ export class HeaFile {
   }
 
   static fromFile(path: string): HeaFile {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const fs = require('node:fs') as typeof import('fs');
+    const fs = nodeFs();
     const buf = fs.readFileSync(path);
     return HeaFile.fromBuffer(new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength));
   }

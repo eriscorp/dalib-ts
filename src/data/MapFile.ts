@@ -1,5 +1,6 @@
 import { SpanReader } from '../io/SpanReader.js';
 import { SpanWriter } from '../io/SpanWriter.js';
+import { nodeFs } from '../io/nodeBuiltins.js';
 
 /** A single map tile with background and foreground layer references. */
 export interface MapTile {
@@ -87,8 +88,7 @@ export class MapFile {
 
   /** Load a MapFile from a file path. **Node.js only**. */
   static fromFile(path: string, width: number, height: number): MapFile {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const fs = require('node:fs') as typeof import('fs');
+    const fs = nodeFs();
     const buf = fs.readFileSync(path);
     return MapFile.fromBuffer(new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength), width, height);
   }

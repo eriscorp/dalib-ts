@@ -2,6 +2,7 @@ import { KhanPalOverrideType } from '../enums.js';
 import type { DataArchive } from '../data/DataArchive.js';
 import type { DataArchiveEntry } from '../data/DataArchiveEntry.js';
 import type { PaletteCyclingEntry } from './PaletteCyclingEntry.js';
+import { nodeFs } from '../io/nodeBuiltins.js';
 
 /**
  * Maps external IDs to palette numbers. Text-format (.tbl) file.
@@ -256,6 +257,19 @@ export class PaletteTable {
   }
 
   /**
+   * Parse one palette cycling file (e.g. mpt001.tbl). Each line is `start end period`.
+   * fromArchive uses the same parser for each numbered file in a family.
+   */
+  static cyclingEntriesFromBuffer(buffer: ArrayBuffer | Uint8Array): PaletteCyclingEntry[] {
+    const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+    return PaletteTable.parseCyclingText(new TextDecoder().decode(bytes));
+  }
+
+  static cyclingEntriesFromEntry(entry: DataArchiveEntry): PaletteCyclingEntry[] {
+    return PaletteTable.cyclingEntriesFromBuffer(entry.toUint8Array());
+  }
+
+  /**
    * Load from archive by pattern. Merges all matching .tbl files.
    * Files with a numeric identifier (e.g. mpt001.tbl) are treated as cycling files.
    * Files without (e.g. mptpal.tbl) are treated as palette mapping tables.
@@ -267,8 +281,7 @@ export class PaletteTable {
       const numId = entry.tryGetNumericIdentifier();
       if (numId !== null) {
         // Cycling file: "mpt001.tbl" → palette #1 cycling entries
-        const text = new TextDecoder().decode(entry.toUint8Array());
-        const cycling = PaletteTable.parseCyclingText(text);
+        const cycling = PaletteTable.cyclingEntriesFromEntry(entry);
         if (cycling.length > 0) table.cyclingEntries.set(numId, cycling);
       } else {
         // Main palette table file
@@ -281,8 +294,7 @@ export class PaletteTable {
   }
 
   static fromFile(path: string): PaletteTable {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const fs = require('node:fs') as typeof import('fs');
+    const fs = nodeFs();
     const buf = fs.readFileSync(path);
     return PaletteTable.fromBuffer(new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength));
   }

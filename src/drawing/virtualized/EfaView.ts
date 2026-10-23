@@ -3,6 +3,7 @@ import type { DataArchive } from '../../data/DataArchive.js';
 import type { DataArchiveEntry } from '../../data/DataArchiveEntry.js';
 import { SpanReader } from '../../io/SpanReader.js';
 import type { EfaFrame } from '../EfaFrame.js';
+import { nodeZlib } from '../../io/nodeBuiltins.js';
 
 interface EfaTocEntry {
   unknown1: number; startAddress: number; compressedSize: number; decompressedSize: number;
@@ -155,8 +156,7 @@ export class EfaView {
 
 function getInflateSync(): (data: Uint8Array) => Uint8Array {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const zlib = require('node:zlib') as typeof import('zlib');
+    const zlib = nodeZlib();
     return (data: Uint8Array) => new Uint8Array(zlib.inflateSync(data));
   } catch {
     throw new Error('EfaView: no inflate function available. Use getAsync() in browser environments.');

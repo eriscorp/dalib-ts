@@ -8,6 +8,7 @@ import { preserveNonTransparentBlacks, quantizeFrames } from '../utility/ImagePr
 import { Palette } from './Palette.js';
 import type { SpfFrame } from './SpfFrame.js';
 import { spfFrameHeight, spfFrameWidth } from './SpfFrame.js';
+import { nodeFs } from '../io/nodeBuiltins.js';
 
 export const enum SpfFormatType {
   Palettized = 0,
@@ -318,8 +319,7 @@ export class SpfFile {
   }
 
   static fromFile(path: string): SpfFile {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const fs = require('node:fs') as typeof import('fs');
+    const fs = nodeFs();
     const buf = fs.readFileSync(path);
     return SpfFile.fromBuffer(new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength));
   }

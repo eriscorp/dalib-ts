@@ -1,5 +1,6 @@
 import type { DataArchive } from './DataArchive.js';
 import type { DataArchiveEntry } from './DataArchiveEntry.js';
+import { nodeFs } from '../io/nodeBuiltins.js';
 
 /**
  * A static tile ID that the client treats as empty — it has no art and no flags.
@@ -117,8 +118,7 @@ export class SotpFile {
 
   /** Load from a file path. **Node.js only**. */
   static fromFile(path: string): SotpFile {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const fs = require('node:fs') as typeof import('fs');
+    const fs = nodeFs();
     const buf = fs.readFileSync(path);
     return SotpFile.fromBuffer(new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength));
   }

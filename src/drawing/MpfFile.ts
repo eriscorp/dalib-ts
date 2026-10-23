@@ -7,6 +7,7 @@ import { cropTransparentPixels, preserveNonTransparentBlacks, quantizeFrames } f
 import type { Palettized } from '../utility/Palettized.js';
 import type { MpfFrame } from './MpfFrame.js';
 import { mpfFrameHeight, mpfFrameWidth } from './MpfFrame.js';
+import { nodeFs } from '../io/nodeBuiltins.js';
 
 /** Frame interval used when an MPF advertises no idle animation (StaticNoIdle). */
 const STATIC_NO_IDLE_INTERVAL_MS = 10_000;
@@ -308,8 +309,7 @@ export class MpfFile {
   }
 
   static fromFile(path: string): MpfFile {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const fs = require('node:fs') as typeof import('fs');
+    const fs = nodeFs();
     const buf = fs.readFileSync(path);
     return MpfFile.fromBuffer(new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength));
   }

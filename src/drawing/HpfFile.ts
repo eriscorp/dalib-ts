@@ -1,6 +1,7 @@
 import { HPF_TILE_WIDTH } from '../constants.js';
 import type { DataArchiveEntry } from '../data/DataArchiveEntry.js';
 import { decompressHpf, isHpfCompressed } from '../io/Compression.js';
+import { nodeFs } from '../io/nodeBuiltins.js';
 
 /** HPF magic number (uint32 LE). */
 const HPF_SIGNATURE = 0xff02aa55;
@@ -76,8 +77,7 @@ export class HpfFile {
 
   /** Load from a file path. **Node.js only**. */
   static fromFile(path: string): HpfFile {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const fs = require('node:fs') as typeof import('fs');
+    const fs = nodeFs();
     const buf = fs.readFileSync(path);
     return HpfFile.fromBuffer(new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength));
   }
