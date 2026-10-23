@@ -58,9 +58,6 @@ jobs:
       - name: Build
         run: npm run build
 
-      # Fails on moderate or worse. One low-severity advisory is currently
-      # accepted: esbuild's dev-server file-read issue, which is reachable only
-      # when running an esbuild dev server (this package never does) and is
-      # pinned below the fix by tsup's `esbuild: ^0.27.0` range.
+      # Fails on moderate or worse.
       - name: Audit (moderate and above)
         run: npm audit --audit-level=moderate
