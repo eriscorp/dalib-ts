@@ -23,6 +23,7 @@ export function isHpfCompressed(buffer: Uint8Array): boolean {
 /**
  * Decompress an HPF-compressed buffer (including its 4-byte header).
  * Returns a new Uint8Array containing the raw decompressed bytes.
+ * Throws when the stream ends before its end-of-stream symbol.
  */
 export function decompressHpf(buffer: Uint8Array): Uint8Array {
   let k = 7;
@@ -54,6 +55,10 @@ export function decompressHpf(buffer: Uint8Array): Uint8Array {
       } else {
         k++;
       }
+
+      // C# indexes a Span here, and the runtime throws past the end. A typed array returns
+      // undefined, which reads as zero bits forever, so the check must be explicit.
+      if (4 + l - 1 >= hpfSize) throw new Error('HPF stream ended before its end-of-stream symbol');
 
       val = (buffer[4 + l - 1]! & (1 << k)) !== 0 ? intEven[val]! : intOdd[val]!;
     }

@@ -76,4 +76,20 @@ describe('HPF Compression', () => {
     const decompressed = decompressHpf(compressed);
     expect(decompressed).toEqual(data);
   });
+
+  // A typed array reads undefined past its end, so without a bounds check these inputs
+  // decode an endless run of zero bits and never return.
+  it('throws on a stream that holds only the signature', () => {
+    expect(() => decompressHpf(HPF_SIGNATURE)).toThrow(/ended before its end-of-stream/);
+  });
+
+  it('throws on a truncated stream', () => {
+    const original = new Uint8Array(2000);
+    for (let i = 0; i < original.length; i++) original[i] = (i * 37 + 13) & 0xff;
+    const compressed = compressHpf(original);
+    expect(decompressHpf(compressed)).toEqual(original);
+
+    const half = compressed.subarray(0, compressed.length >> 1);
+    expect(() => decompressHpf(half)).toThrow(/ended before its end-of-stream/);
+  });
 });
