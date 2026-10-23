@@ -277,6 +277,20 @@ describe('PaletteTable archive loading', () => {
     expect(cycling).toEqual([{ startIndex: 5, endIndex: 6, period: 7 }]);
   });
 
+  it('reads one cycling entry without the rest of its family', () => {
+    const archive = buildArchive([
+      { name: 'mptpal.tbl', data: enc('1 4 7\n') },
+      { name: 'mpt001.tbl', data: enc('10 20 300\r\n\r\nx\n30 40 500') },
+    ]);
+    const expected = [
+      { startIndex: 10, endIndex: 20, period: 300 },
+      { startIndex: 30, endIndex: 40, period: 500 },
+    ];
+    expect(PaletteTable.cyclingEntriesFromEntry(archive.get('mpt001.tbl')!)).toEqual(expected);
+    expect(PaletteTable.cyclingEntriesFromBuffer(enc('10 20 300\n30 40 500\n'))).toEqual(expected);
+    expect(PaletteTable.cyclingEntriesFromBuffer(enc('garbage'))).toEqual([]);
+  });
+
   it('records nothing for a numbered file with no valid cycling lines', () => {
     const archive = buildArchive([{ name: 'mpt003.tbl', data: enc('garbage\n') }]);
     expect(PaletteTable.fromArchive('mpt', archive).getCyclingEntries(3)).toBeUndefined();

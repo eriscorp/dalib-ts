@@ -256,6 +256,19 @@ export class PaletteTable {
   }
 
   /**
+   * Parse one palette cycling file (e.g. mpt001.tbl). Each line is `start end period`.
+   * fromArchive uses the same parser for each numbered file in a family.
+   */
+  static cyclingEntriesFromBuffer(buffer: ArrayBuffer | Uint8Array): PaletteCyclingEntry[] {
+    const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+    return PaletteTable.parseCyclingText(new TextDecoder().decode(bytes));
+  }
+
+  static cyclingEntriesFromEntry(entry: DataArchiveEntry): PaletteCyclingEntry[] {
+    return PaletteTable.cyclingEntriesFromBuffer(entry.toUint8Array());
+  }
+
+  /**
    * Load from archive by pattern. Merges all matching .tbl files.
    * Files with a numeric identifier (e.g. mpt001.tbl) are treated as cycling files.
    * Files without (e.g. mptpal.tbl) are treated as palette mapping tables.
@@ -267,8 +280,7 @@ export class PaletteTable {
       const numId = entry.tryGetNumericIdentifier();
       if (numId !== null) {
         // Cycling file: "mpt001.tbl" → palette #1 cycling entries
-        const text = new TextDecoder().decode(entry.toUint8Array());
-        const cycling = PaletteTable.parseCyclingText(text);
+        const cycling = PaletteTable.cyclingEntriesFromEntry(entry);
         if (cycling.length > 0) table.cyclingEntries.set(numId, cycling);
       } else {
         // Main palette table file
