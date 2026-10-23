@@ -68,6 +68,8 @@ export class EffectTable {
   private static parseText(text: string): EffectTable {
     const table = new EffectTable();
     const lines = text.split(/\r?\n/);
+    // A final line terminator ends the last line. It does not start one more line (C# ReadLine).
+    if (lines[lines.length - 1] === '') lines.pop();
     let lineIndex = 0;
 
     // Skip the count line
