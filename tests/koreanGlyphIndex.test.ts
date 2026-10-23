@@ -15,11 +15,12 @@ const REAL_TEXT_ENCODER = globalThis.TextEncoder;
 
 /** EUC-KR bytes for the characters these tests use. */
 const EUC_KR: Record<string, number[]> = {
-  'ㄱ': [0xa4, 0xa1], // first Jamo → index 0
-  'ㅎ': [0xa4, 0xd3], // last Jamo → index 50
-  '가': [0xb0, 0xa1], // first syllable → index 51
-  '힣': [0xc8, 0xfe], // last syllable → index 2400
-  '中': [0xd6, 0xd0], // outside both ranges
+  '가': [0xb0, 0xa1], // first syllable → index 0
+  '한': [0xc7, 0xd1], // a syllable read off the shipped face at index 2210
+  '힝': [0xc8, 0xfe], // last syllable → index 2349
+  'ㄱ': [0xa4, 0xa1], // first Jamo → index 2350
+  'ㅣ': [0xa4, 0xd3], // last Jamo → index 2400
+  '中': [0xf1, 0xe9], // outside both ranges
 };
 
 /** Install a TextEncoder whose two-argument form returns EUC-KR bytes. */
@@ -61,18 +62,19 @@ describe('getGlyphIndex with an EUC-KR encoder available', () => {
     vi.resetModules();
   });
 
-  it('maps the Jamo block to indexes 0 through 50', async () => {
+  it('maps the Hangul syllable block to indexes 0 through 2349', async () => {
     const { getGlyphIndex, font } = await loadGraphics();
-    expect(getGlyphIndex(font, 'ㄱ')).toBe(0);
-    expect(getGlyphIndex(font, 'ㅎ')).toBe(50);
+    expect(getGlyphIndex(font, '가')).toBe(0);
+    expect(getGlyphIndex(font, '한')).toBe(2210);
+    // The last syllable: (0xC8 - 0xB0) * 94 + (0xFE - 0xA1).
+    expect(getGlyphIndex(font, '힝')).toBe(24 * 94 + 93);
+    expect(getGlyphIndex(font, '힝')).toBe(2349);
   });
 
-  it('maps the Hangul syllable block to indexes 51 through 2400', async () => {
+  it('maps the Jamo block to indexes 2350 through 2400, after the syllables', async () => {
     const { getGlyphIndex, font } = await loadGraphics();
-    expect(getGlyphIndex(font, '가')).toBe(51);
-    // The last syllable: 51 + (0xC8 - 0xB0) * 94 + (0xFE - 0xA1).
-    expect(getGlyphIndex(font, '힣')).toBe(51 + 24 * 94 + 93);
-    expect(getGlyphIndex(font, '힣')).toBe(2400);
+    expect(getGlyphIndex(font, 'ㄱ')).toBe(2350);
+    expect(getGlyphIndex(font, 'ㅣ')).toBe(2400);
   });
 
   it('returns -1 for a character outside both ranges', async () => {

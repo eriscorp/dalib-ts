@@ -8,6 +8,7 @@ import { epfFrameHeight, epfFrameWidth } from '../src/drawing/EpfFrame.js';
 import { Tile } from '../src/drawing/Tile.js';
 import { Tileset } from '../src/drawing/Tileset.js';
 import { compressHpf } from '../src/io/Compression.js';
+import { SpanWriter } from '../src/io/SpanWriter.js';
 
 describe('HpfFile', () => {
   /** 8 private header bytes then width×height palette indexes. */
@@ -67,6 +68,52 @@ describe('EpfFile', () => {
     return epf;
   }
 
+  /**
+   * Raw bytes shaped like the client's Legend.dat/emo32.epf: eight declared frames with
+   * placeholders at 3, 4 and 5. The real file encodes a placeholder as top === bottom === 0
+   * and left === right at a negative multiple of pixelWidth, with startAddress === endAddress.
+   * Built by hand rather than through toUint8Array so the declared count is the fixture's own.
+   */
+  function placeholderEpfBytes(): Uint8Array {
+    const FRAME_W = 12;
+    const FRAME_H = 14;
+    const FRAME_SIZE = FRAME_W * FRAME_H;
+    const placeholderLefts = new Map([[3, -240], [4, -320], [5, -400]]);
+
+    const toc: number[][] = [];
+    const data = new SpanWriter();
+    let address = 0;
+
+    for (let i = 0; i < 8; i++) {
+      const placeholderLeft = placeholderLefts.get(i);
+      if (placeholderLeft !== undefined) {
+        toc.push([0, placeholderLeft, 0, placeholderLeft, address, address]);
+        continue;
+      }
+      data.writeBytes(new Uint8Array(FRAME_SIZE).fill(i + 1));
+      toc.push([0, 0, FRAME_H, FRAME_W, address, address + FRAME_SIZE]);
+      address += FRAME_SIZE;
+    }
+
+    const writer = new SpanWriter();
+    writer.writeInt16LE(8);
+    writer.writeInt16LE(80);
+    writer.writeInt16LE(80);
+    writer.writeBytes(new Uint8Array(2));
+    writer.writeInt32LE(address);
+    writer.writeBytes(data.toUint8Array());
+    for (const [top, left, bottom, right, start, end] of toc) {
+      writer.writeInt16LE(top!);
+      writer.writeInt16LE(left!);
+      writer.writeInt16LE(bottom!);
+      writer.writeInt16LE(right!);
+      writer.writeInt32LE(start!);
+      writer.writeInt32LE(end!);
+    }
+
+    return writer.toUint8Array();
+  }
+
   it('round-trips the container, frame bounds and pixels', () => {
     const source = buildTwoFrameEpf();
     const parsed = EpfFile.fromBuffer(source.toUint8Array());
@@ -89,13 +136,42 @@ describe('EpfFile', () => {
     expect(epfFrameHeight(parsed.frames[1]!)).toBe(2);
   });
 
-  it('skips a zero-area frame', () => {
+  // A zero-area frame is a placeholder, not padding: upstream DALib keeps it (c9c62ee) so a
+  // caller indexing by the client's animation-frame number lands on the frame the file numbers
+  // that way. Dropping it shifts every later frame down one.
+  it('preserves a zero-area frame with empty data, leaving later frames at their own index', () => {
     const epf = new EpfFile();
     epf.frames.push({ top: 0, left: 0, bottom: 0, right: 0, data: new Uint8Array(0) });
+    // Either dimension alone being zero makes the frame a placeholder.
+    epf.frames.push({ top: 4, left: 0, bottom: 4, right: 3, data: new Uint8Array(0) });
     epf.frames.push({ top: 0, left: 0, bottom: 1, right: 2, data: new Uint8Array([1, 2]) });
     const parsed = EpfFile.fromBuffer(epf.toUint8Array());
-    expect(parsed.frames).toHaveLength(1);
-    expect(Array.from(parsed.frames[0]!.data)).toEqual([1, 2]);
+    expect(parsed.frames).toHaveLength(3);
+    expect(parsed.frames[0]).toMatchObject({ top: 0, left: 0, bottom: 0, right: 0 });
+    expect(parsed.frames[0]!.data).toHaveLength(0);
+    expect(parsed.frames[1]).toMatchObject({ top: 4, left: 0, bottom: 4, right: 3 });
+    expect(parsed.frames[1]!.data).toHaveLength(0);
+    expect(Array.from(parsed.frames[2]!.data)).toEqual([1, 2]);
+  });
+
+  it('keeps one frame per declared frame, so a placeholder does not renumber later frames', () => {
+    const bytes = placeholderEpfBytes();
+    const declaredFrameCount = new DataView(bytes.buffer, bytes.byteOffset).getInt16(0, true);
+    const parsed = EpfFile.fromBuffer(bytes);
+
+    expect(declaredFrameCount).toBe(8);
+    expect(parsed.frames).toHaveLength(declaredFrameCount);
+
+    for (const i of [3, 4, 5]) {
+      expect(epfFrameWidth(parsed.frames[i]!)).toBe(0);
+      expect(parsed.frames[i]!.data).toHaveLength(0);
+    }
+
+    // Each real frame is filled with its own frame number, so a shift would be visible here.
+    for (const i of [0, 1, 2, 6, 7]) {
+      expect(epfFrameWidth(parsed.frames[i]!)).toBe(12);
+      expect(parsed.frames[i]!.data[0]).toBe(i + 1);
+    }
   });
 
   it('handles an EPF with no frames', () => {
@@ -151,11 +227,15 @@ describe('EpfFile', () => {
       expect(entity.frames[0]!.data[0]).not.toBe(entity.frames[1]!.data[0]);
     });
 
-    it('drops a fully transparent frame, which crops to zero area', () => {
+    // Upstream FromImages adds every source image unconditionally, so the built file has one
+    // frame per input and the caller's frame numbering survives the round trip.
+    it('keeps a fully transparent frame, which crops to zero area, at its own index', () => {
       const blank: RgbaFrame = { width: 4, height: 4, data: new Uint8ClampedArray(4 * 4 * 4) };
       const { entity } = EpfFile.fromRgbaFrames([blank, dot(4, 4, 1, 1, 9, 9, 9)]);
-      expect(entity.frames).toHaveLength(1);
-      expect(entity.frames[0]!.left).toBe(1);
+      expect(entity.frames).toHaveLength(2);
+      expect(entity.frames[0]).toMatchObject({ top: 0, left: 0, bottom: 0, right: 0 });
+      expect(entity.frames[0]!.data).toHaveLength(0);
+      expect(entity.frames[1]!.left).toBe(1);
     });
 
     it('round-trips the built file back through the parser', () => {

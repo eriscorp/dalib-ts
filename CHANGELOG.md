@@ -4,6 +4,50 @@ All notable changes to `@eriscorp/dalib-ts` will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.0] - 2026-09-15
+
+EPF parsing regains parity with upstream DALib `c9c62ee`: a zero-dimension frame is a
+placeholder that holds an animation index, not padding to be discarded.
+
+### Fixed
+
+- **Zero-dimension EPF frames are preserved, not dropped.** `EpfFile.parse`,
+  `EpfFile.fromRgbaFrames` and `EpfView.fromEntry` skipped any frame whose bounds give
+  a width or height of zero. Upstream stopped doing that in `c9c62ee` (2026-04-17) and
+  keeps the frame with an empty `Data` array, because the client addresses EPF frames by
+  animation-frame index: dropping one shifts every later frame down a slot. The 7.41
+  client carries 7,323 such frames across 1,422 `.epf` entries, and in 325 of those files
+  a real frame is renumbered — `Legend.dat/emo32.epf` declares 8 frames with placeholders
+  at 3, 4 and 5, so what the file calls frame 6 previously arrived as `frames[3]`.
+  `EpfView.get` now returns the empty frame directly rather than slicing the TOC range,
+  matching where upstream moved the guard.
+- **Korean glyphs map to the right slots.** The shipped `han*.fnt` face stores the 2,350
+  Hangul syllables at glyphs 0–2349 and the 51 Jamo at 2350–2400; `getGlyphIndex` had
+  the blocks the other way round, so every syllable rendered 51 glyphs late (한 is glyph
+  2210 and was drawn from 2261). Nothing threw, because the wrong mapping covers the same
+  2,401 indexes. Upstream DALib's `GetGlyphIndex` has the same inversion as of `9a2a72d`
+  and is being fixed in parallel.
+  The 7.41 client does not load FNT: its FNT loaders have no callers, and it draws text from LFT. This fix changes what dalib-ts renders from a `.fnt` file. It does not change client parity.
+
+### Changed
+
+- **`EpfFile.frames.length` now equals the file's declared frame count**, and
+  `EpfView.count` equals its declared TOC length. Code that iterates every frame sees the
+  placeholders and must check a frame's width/height before rendering; `renderEpf` already
+  returns a 1x1 transparent frame for them. Code that indexes by animation-frame number
+  becomes correct without changing.
+- **`EpfFile.fromRgbaFrames` emits one frame per source image.** A fully transparent input
+  crops to 0x0 and is now kept as an empty frame instead of vanishing, so the built file's
+  frame numbering matches the caller's. This matches upstream `EpfFile.FromImages`, which
+  adds every image unconditionally.
+
+### Note on 2.0.0
+
+The 2.0.0 entry "`EpfFile.parse` empty-frame guard — already short-circuits before
+reading data" is a true statement about this port and a wrong conclusion about the upstream
+it was compared against: `c9c62ee` left the guard's condition alone and changed what the
+guard does. The `renderEpf` guard that release did take is the other half of the same commit.
+
 ## [3.1.1] - 2026-08-10
 
 Three asset-layer fixes, all measured against a retail 7.41 client install rather
@@ -243,7 +287,8 @@ Initial public release of `@eriscorp/dalib-ts` on npmjs.org. TypeScript port of 
 
 <!-- Version 2.1.0 has no entry: it was prepared but never tagged or published. -->
 
-[Unreleased]: https://github.com/eriscorp/dalib-ts/compare/v3.1.1...HEAD
+[Unreleased]: https://github.com/eriscorp/dalib-ts/compare/v3.2.0...HEAD
+[3.2.0]: https://github.com/eriscorp/dalib-ts/compare/v3.1.1...v3.2.0
 [3.1.1]: https://github.com/eriscorp/dalib-ts/compare/v3.1.0...v3.1.1
 [3.1.0]: https://github.com/eriscorp/dalib-ts/compare/v3.0.0...v3.1.0
 [3.0.0]: https://github.com/eriscorp/dalib-ts/compare/v2.2.0...v3.0.0

@@ -46,21 +46,28 @@ export class EpfFile {
       const startAddress = segReader.readInt32LE();
       const endAddress = segReader.readInt32LE();
 
-      if (w === 0 || h === 0) continue;
+      // Empty frames (w === 0 || h === 0) are preserved with an empty data array so that
+      // direct-index access by animation-frame index stays stable. Callers should check
+      // a frame's width/height before rendering it.
+      let data: Uint8Array;
 
-      segReader.seek(startAddress);
+      if (w === 0 || h === 0) {
+        data = new Uint8Array(0);
+      } else {
+        segReader.seek(startAddress);
 
-      const expectedSize = endAddress - startAddress;
-      const actualData = expectedSize === w * h
-        ? segReader.readBytes(expectedSize)
-        : segReader.readBytes(tocAddress - startAddress);
+        const expectedSize = endAddress - startAddress;
+        data = new Uint8Array(expectedSize === w * h
+          ? segReader.readBytes(expectedSize)
+          : segReader.readBytes(tocAddress - startAddress));
+      }
 
       epf.frames.push({
         top,
         left,
         bottom,
         right,
-        data: new Uint8Array(actualData),
+        data,
       });
     }
 
@@ -156,7 +163,8 @@ export class EpfFile {
     for (let i = 0; i < frames.length; i++) {
       const { offsetX, offsetY } = crops[i]!;
       const { width: w, height: h } = croppedFrames[i]!;
-      if (w === 0 || h === 0) continue;
+      // A fully transparent source frame crops to 0x0 and is kept as an empty frame, so the
+      // built EPF has one frame per source frame and animation indexes line up with the input.
       epf.frames.push({
         top: offsetY,
         left: offsetX,
