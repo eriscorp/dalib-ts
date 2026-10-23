@@ -58,6 +58,10 @@ jobs:
       - name: Build
         run: npm run build
 
+      # Vitest runs src, not the files that ship. This loads dist through the ESM and the CJS entry.
+      - name: Smoke-test the built package
+        run: npm run test:dist
+
       # Fails on moderate or worse.
       - name: Audit (moderate and above)
         run: npm audit --audit-level=moderate

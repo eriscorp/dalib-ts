@@ -2,6 +2,7 @@ import type { Color } from '../constants.js';
 import type { DataArchive } from '../data/DataArchive.js';
 import type { DataArchiveEntry } from '../data/DataArchiveEntry.js';
 import { type ColorTableEntry, emptyColorTableEntry } from './ColorTableEntry.js';
+import { nodeFs } from '../io/nodeBuiltins.js';
 
 /**
  * A table of colors used as dye tables. Text-format file (.tbl).
@@ -116,8 +117,7 @@ export class ColorTable {
   }
 
   static fromFile(path: string): ColorTable {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const fs = require('node:fs') as typeof import('fs');
+    const fs = nodeFs();
     const buf = fs.readFileSync(path);
     return ColorTable.fromBuffer(new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength));
   }

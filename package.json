@@ -28,7 +28,8 @@
     "test:watch": "vitest",
     "test:browser": "vitest --browser",
     "lint": "tsc --noEmit",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "test:dist": "node tests/distSmoke.mjs"
   },
   "devDependencies": {
     "@types/node": "^25.5.2",

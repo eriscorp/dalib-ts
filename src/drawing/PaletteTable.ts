@@ -2,6 +2,7 @@ import { KhanPalOverrideType } from '../enums.js';
 import type { DataArchive } from '../data/DataArchive.js';
 import type { DataArchiveEntry } from '../data/DataArchiveEntry.js';
 import type { PaletteCyclingEntry } from './PaletteCyclingEntry.js';
+import { nodeFs } from '../io/nodeBuiltins.js';
 
 /**
  * Maps external IDs to palette numbers. Text-format (.tbl) file.
@@ -293,8 +294,7 @@ export class PaletteTable {
   }
 
   static fromFile(path: string): PaletteTable {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const fs = require('node:fs') as typeof import('fs');
+    const fs = nodeFs();
     const buf = fs.readFileSync(path);
     return PaletteTable.fromBuffer(new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength));
   }

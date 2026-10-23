@@ -3,6 +3,7 @@ import { COLORS_PER_PALETTE, PALETTE_DYE_INDEX_START, TRANSPARENT } from '../con
 import type { DataArchiveEntry } from '../data/DataArchiveEntry.js';
 import { SpanReader } from '../io/SpanReader.js';
 import { SpanWriter } from '../io/SpanWriter.js';
+import { nodeFs } from '../io/nodeBuiltins.js';
 
 /** A color table entry used for dyeing — an array of replacement colors. */
 export interface ColorTableEntry {
@@ -112,8 +113,7 @@ export class Palette {
 
   /** Load a Palette from a file path. **Node.js only**. */
   static fromFile(path: string): Palette {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const fs = require('node:fs') as typeof import('fs');
+    const fs = nodeFs();
     const buf = fs.readFileSync(path);
     return Palette.fromBuffer(new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength));
   }

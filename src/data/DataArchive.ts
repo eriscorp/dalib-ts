@@ -2,6 +2,7 @@ import { DATA_ARCHIVE_ENTRY_NAME_LENGTH } from '../constants.js';
 import { SpanReader } from '../io/SpanReader.js';
 import { SpanWriter } from '../io/SpanWriter.js';
 import { DataArchiveEntry } from './DataArchiveEntry.js';
+import { nodeFs, nodePath } from '../io/nodeBuiltins.js';
 
 const HEADER_LENGTH = 4;
 const ENTRY_HEADER_LENGTH = HEADER_LENGTH + DATA_ARCHIVE_ENTRY_NAME_LENGTH; // 4 + 13 = 17
@@ -305,9 +306,7 @@ export class DataArchive {
     path: string,
     optionsOrNewFormat: DataArchiveOptions | boolean = {},
   ): DataArchive {
-    // Dynamic import to avoid bundling fs in browser builds
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const fs = require('node:fs') as typeof import('fs');
+    const fs = nodeFs();
     const buf = fs.readFileSync(path);
     return DataArchive.fromBuffer(
       new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength),
@@ -320,10 +319,8 @@ export class DataArchive {
    * **Node.js only** — will throw in a browser environment.
    */
   static compileFromDirectory(dirPath: string): Uint8Array {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const fs = require('node:fs') as typeof import('fs');
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const path = require('node:path') as typeof import('path');
+    const fs = nodeFs();
+    const path = nodePath();
 
     const files = fs.readdirSync(dirPath).map((f: string) => path.join(dirPath, f));
     const fileCount = files.length;
