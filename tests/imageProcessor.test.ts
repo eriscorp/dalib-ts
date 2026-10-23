@@ -124,6 +124,60 @@ describe('quantizeFrames', () => {
     ]);
     expect(indexedFrames[0]![0]).not.toBe(indexedFrames[0]![1]);
   });
+
+  // An exporter can leave any RGB under alpha 0. That colour is never drawn, so it must not
+  // take palette slots from the colours that are drawn.
+  it('builds the palette from visible pixels only', () => {
+    // 64 drawn colours on a 4x4x4 grid, and 960 transparent pixels that hide other colours.
+    const drawn = (i: number): [number, number, number, number] => [
+      (i & 3) * 80 + 15,
+      ((i >> 2) & 3) * 80 + 15,
+      ((i >> 4) & 3) * 80 + 15,
+      255,
+    ];
+    let seed = 1;
+    const next = () => (seed = (seed * 1664525 + 1013904223) >>> 0) >>> 24;
+    const frame = frameOf(32, 32, (x, y) => {
+      const i = y * 32 + x;
+      return i < 64 ? drawn(i) : [next(), next(), next(), 0];
+    });
+
+    const { palette, indexedFrames } = quantizeFrames([frame]);
+    for (let i = 0; i < 64; i++) {
+      const [r, g, b] = drawn(i);
+      expect(palette.get(indexedFrames[0]![i]!)).toMatchObject({ r, g, b });
+    }
+    for (let i = 64; i < 1024; i++) expect(indexedFrames[0]![i]).toBe(0);
+  });
+
+  it('gives the same result whatever RGB a transparent pixel hides', () => {
+    let seed = 7;
+    const next = () => (seed = (seed * 1664525 + 1013904223) >>> 0) >>> 24;
+    const pixels = Array.from({ length: 48 * 48 }, () => ({
+      rgb: [next(), next(), next()] as const,
+      transparent: next() < 77,
+    }));
+    const build = (hidden: boolean) =>
+      frameOf(48, 48, (x, y) => {
+        const p = pixels[y * 48 + x]!;
+        if (!p.transparent) return [...p.rgb, 255];
+        return hidden ? [...p.rgb, 0] : [0, 0, 0, 0];
+      });
+
+    const withHidden = quantizeFrames([build(true)]);
+    const zeroed = quantizeFrames([build(false)]);
+    expect(withHidden.indexedFrames[0]).toEqual(zeroed.indexedFrames[0]);
+    for (let i = 0; i < 256; i++) expect(withHidden.palette.get(i)).toEqual(zeroed.palette.get(i));
+  });
+
+  it('indexes frames that have no visible pixels to 0', () => {
+    const { indexedFrames } = quantizeFrames([
+      frameOf(2, 2, () => [90, 60, 30, 0]),
+      { width: 0, height: 0, data: new Uint8ClampedArray(0) },
+    ]);
+    expect(Array.from(indexedFrames[0]!)).toEqual([0, 0, 0, 0]);
+    expect(indexedFrames[1]).toHaveLength(0);
+  });
 });
 
 describe('frame dimension helpers', () => {

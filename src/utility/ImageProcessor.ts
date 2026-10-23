@@ -77,12 +77,31 @@ export interface QuantizeResult {
   indexedFrames: Uint8Array[];
 }
 
+/** Pack a frame's pixels with alpha > 0 into one row, or return undefined if it has none. */
+function visiblePixels(frame: RgbaFrame): IQ.utils.PointContainer | undefined {
+  const src = frame.data;
+  let count = 0;
+  for (let i = 3; i < src.length; i += 4) if (src[i] !== 0) count++;
+  if (count === 0) return undefined;
+
+  const packed = new Uint8Array(count * 4);
+  let o = 0;
+  for (let i = 0; i < src.length; i += 4) {
+    if (src[i + 3] === 0) continue;
+    packed[o++] = src[i]!;
+    packed[o++] = src[i + 1]!;
+    packed[o++] = src[i + 2]!;
+    packed[o++] = src[i + 3]!;
+  }
+  return IQ.utils.PointContainer.fromUint8Array(packed, count, 1);
+}
+
 /**
  * Quantize multiple RGBA frames to a shared 256-color palette using the Wu algorithm.
  *
  * Strategy:
  *  - Slot 0 is reserved for transparent black.
- *  - Ask image-q for 255 colors (slots 1-255).
+ *  - Ask image-q for 255 colors (slots 1-255), built from pixels with alpha > 0 only.
  *  - Transparent pixels (alpha === 0) always map to index 0.
  *  - Opaque pixels are snapped to the nearest palette entry.
  *
@@ -102,8 +121,14 @@ export function quantizeFrames(frames: RgbaFrame[]): QuantizeResult {
     ),
   );
 
-  // Build a shared palette (255 colors — slot 0 reserved for transparent)
-  const iqPalette = IQ.buildPaletteSync(containers, { colors: MAX_QUANTIZE_COLORS });
+  // Build a shared palette (255 colors — slot 0 reserved for transparent) from visible pixels
+  // only. A transparent pixel always maps to slot 0, but its RGB can be anything an exporter
+  // left there, and it would take palette slots from the colors that are drawn.
+  const visible = frames.map(visiblePixels).filter(c => c !== undefined);
+  if (visible.length === 0) {
+    return { palette: new Palette(), indexedFrames: frames.map(f => new Uint8Array(f.width * f.height)) };
+  }
+  const iqPalette = IQ.buildPaletteSync(visible, { colors: MAX_QUANTIZE_COLORS });
 
   // Extract colors from the image-q palette into slots 1-255
   const palette = new Palette();
@@ -120,7 +145,9 @@ export function quantizeFrames(frames: RgbaFrame[]): QuantizeResult {
 
   // Snap each frame's pixels to the palette
   const indexedFrames = frames.map((frame, fi) => {
-    const snapped = IQ.applyPaletteSync(containers[fi]!, iqPalette);
+    // Nearest, not image-q's default Floyd-Steinberg: error diffusion would carry the hidden RGB
+    // of transparent pixels into their visible neighbours.
+    const snapped = IQ.applyPaletteSync(containers[fi]!, iqPalette, { imageQuantization: 'nearest' });
     const snappedPoints = snapped.getPointArray();
     const indexed = new Uint8Array(frame.width * frame.height);
     const src = frame.data;
