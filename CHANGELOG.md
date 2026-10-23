@@ -27,6 +27,7 @@ placeholder that holds an animation index, not padding to be discarded.
   2210 and was drawn from 2261). Nothing threw, because the wrong mapping covers the same
   2,401 indexes. Upstream DALib's `GetGlyphIndex` has the same inversion as of `9a2a72d`
   and is being fixed in parallel.
+  The 7.41 client does not load FNT: its FNT loaders have no callers, and it draws text from LFT. This fix changes what dalib-ts renders from a `.fnt` file. It does not change client parity.
 
 ### Changed
 
