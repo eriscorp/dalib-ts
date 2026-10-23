@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- **`quantizeFrames` maps each pixel to the nearest palette colour and does not dither.** Before, it used image-q's default Floyd–Steinberg error diffusion, although its documentation said "nearest". Images built through `fromRgbaFrames` with more than 255 colours no longer show a dither pattern.
+
 ### Added
 
 - **`PaletteTable.cyclingEntriesFromBuffer` and `PaletteTable.cyclingEntriesFromEntry`** read one palette cycling file (for example `mpt001.tbl`). Before, the only reader was `fromArchive`, which loads the full family. Both use the parser that `fromArchive` uses.
@@ -15,6 +19,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - **The ESM entry can read files and inflate data.** The `fromFile` factories, `MetaFile.fromCompressedBuffer`, and the sync inflate and deflate in `EfaFile` and `EfaView` called `require('node:fs' | 'node:path' | 'node:zlib')`. The ESM bundle has no `require`, so each call threw "Dynamic require of ... is not supported". The CJS entry was correct. These calls now get the module from `process.getBuiltinModule` (Node 20.16+ and 22.3+), and use `require` only on an older Node. On an older Node, these paths still work only through the CJS entry.
 - **`decompressHpf` throws on a truncated stream.** It read past the end of the input, and a typed array returns `undefined` there, which decodes as zero bits without end. A short `.hpf` entry hung the thread that opened it. The C# original throws at the same read. All 22,665 HPF entries in a 7.41 client decode to the same bytes as before, and the new check fires on none of them.
+- **`quantizeFrames` ignores the RGB of transparent pixels.** The palette was built from every pixel, so the RGB that an exporter leaves under alpha 0 took palette slots from colours that are drawn. The snap step also used image-q's default Floyd–Steinberg dithering, which carried that hidden RGB into visible neighbours. The palette now comes from pixels with alpha > 0 only, and the result does not change with hidden RGB. This affects `fromRgbaFrames` on `EpfFile`, `MpfFile`, `SpfFile` and `Tileset`. On a 128 × 128 test frame with random colour under 80% transparency, mean colour error on opaque pixels went from 52.8 to 29.0.
 - **`EffectTable` does not add an effect for a final line terminator.** Text that ends with a terminator parsed to one more effect than its count line. `toText` always writes a final terminator, so each save and load added one empty effect. A last slot that is really empty (`3\n1\n2\n\n`) still reads as an empty effect. Taliesin removes one final terminator before it calls `EffectTable.fromBuffer`. Remove that workaround when Taliesin takes this version, or a file whose last effect is empty loses that effect.
 
 ## [3.2.0] - 2026-09-15
