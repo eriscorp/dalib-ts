@@ -143,6 +143,39 @@ These decode individual frames on demand rather than parsing the entire file.
 
 ---
 
+## Testing against a real client
+
+A handful of suites assert against the archives a real Dark Ages install ships rather than against
+synthetic fixtures. They gate themselves on the files being present, so they skip on CI and on any
+machine without a client — no binary assets are committed here.
+
+Point `DALIB_CLIENT_DIR` at an install to run them:
+
+```bash
+DALIB_CLIENT_DIR="/path/to/dark ages" npm test
+```
+
+If you have no install, `tools/extract-wise-installer.mjs` unpacks one straight out of the official
+installer without running it (it is a Wise self-extractor; `7z` and `innoextract` cannot read it,
+and no wine is needed):
+
+```bash
+node tools/extract-wise-installer.mjs ~/Downloads/DarkAges741single.exe "/path/to/dark ages"
+```
+
+Every extracted file is checked against both the size and the CRC32 the installer records for it, so
+a clean exit means the payload is intact. `--dry-run` verifies without writing.
+
+One thing to know on a case-sensitive filesystem: the installer spells the archive `Legend.dat`,
+while `tests/paletteResolver.test.ts` looks it up as `legend.dat`, so that suite stays skipped. Either
+extract with `--lowercase`, or add the alias:
+
+```bash
+ln -s Legend.dat "/path/to/dark ages/legend.dat"
+```
+
+---
+
 ## License
 
 [MIT](LICENSE)
