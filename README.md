@@ -111,6 +111,38 @@ const imageData = new ImageData(rgbaFrame.data, rgbaFrame.width, rgbaFrame.heigh
 ctx.putImageData(imageData, 0, 0);
 ```
 
+### Writing a PNG (Node.js)
+
+```ts
+import { encodePng, renderMpf } from '@eriscorp/dalib-ts';
+import { writeFileSync } from 'node:fs';
+
+writeFileSync('frame.png', encodePng(renderMpf(mpf.frames[0], palette)));
+```
+
+---
+
+## Command line and MCP
+
+The package installs a `dalib-ts` command. It reads a client folder and never writes to it. Each command prints one line of JSON.
+
+```sh
+npx @eriscorp/dalib-ts --help
+npx @eriscorp/dalib-ts ls hades 'mns*.mpf' --client "/path/to/dark ages"
+npx @eriscorp/dalib-ts info hades mns001.mpf
+npx @eriscorp/dalib-ts render hades mns001.mpf --sheet 4 --scale 2 --out mns001.png
+```
+
+The client folder is `--client`, else `DALIB_CLIENT_DIR`. An archive is a name in that folder (`legend`, `Legend.dat`; case does not matter) or a path. A render resolves its palette by the client rules unless `--palette` names one.
+
+`dalib-ts mcp` serves the same commands as MCP tools over stdio, for an AI agent. The render tool returns the PNG as an image. To add it to Claude Code:
+
+```sh
+claude mcp add dalib-ts -- npx -y @eriscorp/dalib-ts mcp --client "/path/to/dark ages"
+```
+
+In a checkout, `npm run -s dalib-ts -- <command>` runs the same CLI from the source.
+
 ---
 
 ## API Overview

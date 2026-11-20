@@ -42,6 +42,7 @@ export {
   HPF_SIGNATURE_UINT32,
   isHpfCompressed,
 } from './io/Compression.js';
+export { encodePng } from './io/PngWriter.js';
 
 // Cryptography
 export { crc16 } from './cryptography/CRC16.js';
