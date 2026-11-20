@@ -15,6 +15,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Fixed
 
 - **`PaletteResolver` gives a ground tile the palette the client gives it.** For `tilea.bmp` and `tileas.bmp`, `frameIndex` is the tile's position in the tileset, from 0. Map ground tile N is at position N - 1, and the client keys its palette on N + 1, so the key is the position + 2. The resolver used the position + 1, one short. On a retail 7.41 client, 118 of 19,415 `tilea.bmp` tiles and 55 of 19,243 `tileas.bmp` tiles took the palette of the range before theirs. DALib's map renderer, Brigid and Taliesin already use the right key. The `PaletteIdKind` value `tileIndexPlus1` is now `tilePosition`.
+- **`SpanReader.readBytes` throws when fewer bytes remain than it is asked for.** Before, it checked only the whole buffer. An archive entry is a window into the archive's buffer, so a malformed EPF, MPF or SPF entry that claimed more bytes than it held was read on into the next entry, with no error. `readFixedAscii` had the same fault. Every EPF, MPF and SPF entry of a retail 7.41 client parses as before.
 
 ## [3.3.0] - 2026-10-29
 

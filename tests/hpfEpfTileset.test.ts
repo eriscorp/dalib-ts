@@ -58,6 +58,29 @@ describe('HpfFile', () => {
 });
 
 describe('EpfFile', () => {
+  it('refuses a frame that claims more pixels than its entry holds (HTOO-688)', () => {
+    // A 12-byte header and a 20-byte segment: 4 pixel bytes, then one TOC row
+    // that claims 10x10 pixels at 0-100.
+    const w = new SpanWriter();
+    w.writeInt16LE(1);
+    w.writeInt16LE(10);
+    w.writeInt16LE(10);
+    w.writeUInt16LE(0);
+    w.writeInt32LE(4);
+    w.writeBytes(new Uint8Array(4));
+    for (const v of [0, 0, 10, 10]) w.writeInt16LE(v);
+    w.writeInt32LE(0);
+    w.writeInt32LE(100);
+    const epf = w.toUint8Array();
+    expect(epf.length).toBe(32);
+    expect(() => EpfFile.fromBuffer(epf)).toThrow(RangeError);
+    // The same bytes as an archive entry: a window into a larger buffer. The
+    // read once ran on and built the frame from 80 bytes of the next entry.
+    const archive = new Uint8Array(256).fill(0xaa);
+    archive.set(epf);
+    expect(() => EpfFile.fromBuffer(archive.subarray(0, 32))).toThrow('readBytes(100) with 20 bytes remaining');
+  });
+
   function buildTwoFrameEpf(): EpfFile {
     const epf = new EpfFile();
     epf.pixelWidth = 10;
