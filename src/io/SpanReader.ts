@@ -104,8 +104,17 @@ export class SpanReader {
     return v;
   }
 
-  /** Read `n` bytes as a new Uint8Array (zero-copy slice into the underlying buffer). */
+  /**
+   * Read `n` bytes as a new Uint8Array (zero-copy slice into the underlying buffer).
+   * Throws when fewer than `n` bytes remain in this reader's window. The check is
+   * against the window, not the buffer: an archive entry is a window into the
+   * whole archive, and the typed-array constructor checks only the buffer, so an
+   * overlong read ran on into the next entry (as C# `SpanReader.ReadBytes` guards).
+   */
   readBytes(n: number): Uint8Array {
+    if (!Number.isInteger(n) || n < 0 || n > this.remaining) {
+      throw new RangeError(`readBytes(${n}) with ${this.remaining} bytes remaining`);
+    }
     const slice = new Uint8Array(this.view.buffer, this.view.byteOffset + this.pos, n);
     this.pos += n;
     return slice;

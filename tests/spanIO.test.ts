@@ -144,4 +144,29 @@ describe('SpanReader cursor', () => {
     expect(Array.from(slice)).toEqual([10, 20]);
     expect(r.position).toBe(2);
   });
+
+  it('readBytes reads to the end of the window and no further', () => {
+    const r = new SpanReader(bytes);
+    r.readBytes(2);
+    expect(Array.from(r.readBytes(3))).toEqual([30, 40, 50]);
+    expect(r.readBytes(0).length).toBe(0);
+    expect(() => r.readBytes(1)).toThrow(new RangeError('readBytes(1) with 0 bytes remaining'));
+  });
+
+  it('readBytes refuses to run past a window into the bytes after it', () => {
+    // An archive entry is a window into the archive's buffer. Before HTOO-688
+    // the typed-array constructor checked only the whole buffer, so this read
+    // returned the window's 3 bytes and 2 bytes of its neighbour.
+    const whole = new Uint8Array([1, 2, 3, 0xaa, 0xaa, 0xaa]);
+    const r = new SpanReader(whole.subarray(0, 3));
+    expect(() => r.readBytes(5)).toThrow(new RangeError('readBytes(5) with 3 bytes remaining'));
+    expect(r.position).toBe(0);
+    expect(() => r.readFixedAscii(4)).toThrow(RangeError);
+  });
+
+  it('readBytes refuses a negative or fractional length', () => {
+    const r = new SpanReader(bytes);
+    expect(() => r.readBytes(-1)).toThrow(RangeError);
+    expect(() => r.readBytes(1.5)).toThrow(RangeError);
+  });
 });
