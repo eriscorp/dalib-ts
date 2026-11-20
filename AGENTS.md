@@ -39,7 +39,7 @@ Some tests read a real Dark Ages client installation. `tests/clientAssets.ts` fi
 
 ## Reading client files without a script
 
-Do not write a throwaway script to look inside a client file. Use the CLI: `npm run -s dalib-ts -- <command> --client <dir>` in this checkout, or `npx @eriscorp/dalib-ts <command>` anywhere. `--help` lists the commands. `render` writes a PNG that you can open and look at; `info` gives frame rects and empty frames; `palette` gives the rule that resolves an entry. `dalib-ts mcp` serves the same commands as MCP tools.
+Do not write a throwaway script to look inside a client file. Use the CLI: `npm run -s dalib-ts -- <command> --client <dir>` in this checkout, or `npx @eriscorp/dalib-ts <command>` anywhere. `--help` lists the commands. `render` writes a PNG that you can open and look at; `info` gives frame rects and empty frames; `palette` gives the rule that resolves an entry. A ground tile is named by the id a map holds (`--tiles` on `render`, `--tile` on `palette`), never by its position in `tilea.bmp`. `dalib-ts mcp` serves the same commands as MCP tools.
 
 The code is `src/cli/`. Each command calls the library's public classes, so a feature the CLI needs belongs in the library first. `src/cli/agentMcp.ts` is a house module copied from hyb-electron-template: change it there, not here. `src/cli/bin.ts` is out of coverage because only a spawned process runs it; `npm run test:dist` runs the built bin.
 

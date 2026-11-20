@@ -23,7 +23,7 @@ side (see "Consumer guard already in place" below), but the library itself
 should be fixed so every consumer is protected.
 
 There was also a **FntFile reversal** change (author: Sabrael); it has since
-**landed** (see section 2). The ColorTable hardening in section 1 is still open.
+**landed** (see section 2). The ColorTable hardening in section 1 is done too.
 
 ---
 

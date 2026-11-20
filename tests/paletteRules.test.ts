@@ -108,7 +108,7 @@ describe('matchPaletteRule details', () => {
   });
 
   it('keys tileset rules on the tile index', () => {
-    expect(matchPaletteRule('seo.dat', 'tilea.bmp')?.idKind).toBe('tileIndexPlus1');
+    expect(matchPaletteRule('seo.dat', 'tilea.bmp')?.idKind).toBe('tilePosition');
     expect(matchPaletteRule('seo.dat', 'tileas.bmp')?.tablePattern).toBe('mpspal');
   });
 });

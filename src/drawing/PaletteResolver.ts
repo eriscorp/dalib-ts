@@ -102,8 +102,9 @@ export class PaletteResolver {
    * Resolve the palette for an entry.
    *
    * `frameIndex` participates in exactly two rules: legend items (the frame
-   * within the `.epf`) and tilesets (the tile index within `tilea.bmp` /
-   * `tileas.bmp`). Every other rule ignores it.
+   * within the `.epf`) and tilesets (the tile's position within `tilea.bmp` /
+   * `tileas.bmp`, from 0; a map's ground tile id N is position N - 1).
+   * Every other rule ignores it.
    */
   resolve(entry: DataArchiveEntry, frameIndex = 0): ResolvedPalette | null {
     const match = matchPaletteRule(this.archiveName, entry.entryName);
@@ -189,8 +190,10 @@ export class PaletteResolver {
         id = identifier === null ? null : (identifier - 1) * LEGEND_ITEM_PALETTE_STRIDE + frameIndex + 1;
         break;
       }
-      case 'tileIndexPlus1':
-        id = frameIndex + 1;
+      case 'tilePosition':
+        // Position p is map ground tile p + 1, and the client keys that tile's
+        // palette on its id + 1: DALib's RenderMap, Brigid and Taliesin agree.
+        id = frameIndex + 2;
         break;
       default:
         id = entry.tryGetNumericIdentifier();

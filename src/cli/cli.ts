@@ -16,10 +16,11 @@ export const USAGE = `Usage: dalib-ts <command> [arguments] [--client <dir>] [--
   cat <archive> <entry> [--hex] [--encoding <name>]
                                           a text entry (ASCII, else EUC-KR), or its bytes as hex
   info <archive> <entry|pattern>          frames, sizes, empty frames, animation header, palette rule
-  render <archive> <entry> [--out <file.png>] [--frames 0,3-5] [--palette auto|<name.pal>|<archive>/<name.pal>]
+  render <archive> <entry> [--out <file.png>] [--frames 0,3-5 | --tiles 1,3-5] [--palette auto|<name.pal>|<archive>/<name.pal>]
          [--dye <n>] [--scale <n>] [--sheet <columns>] [--bg transparent|#rrggbb] [--max <px>]
-                                          frames of an EPF, MPF, HPF, SPF or EFA as a PNG
-  palette <archive> <entry> [--colors] [--frame <n>]
+                                          frames of an EPF, MPF, HPF, SPF or EFA, or tiles of tilea.bmp or
+                                          tileas.bmp (by the ground tile ids a map holds), as a PNG
+  palette <archive> <entry> [--colors] [--frame <n> | --tile <id>]
                                           the palette an entry resolves to (rule, number)
   palette-diff <archive>/<a.pal> <archive>/<b.pal>
                                           the indexes where two palettes differ
@@ -125,6 +126,7 @@ export async function run(argv: string[], env: NodeJS.ProcessEnv = process.env):
         const r = cmd.render(ctx, args[0]!, args[1]!, {
           out: str(f, 'out'),
           frames: str(f, 'frames'),
+          tiles: str(f, 'tiles'),
           palette: str(f, 'palette'),
           dye: num(f, 'dye'),
           scale: num(f, 'scale'),
@@ -138,7 +140,7 @@ export async function run(argv: string[], env: NodeJS.ProcessEnv = process.env):
       }
       case 'palette':
         need(args, 2, 'palette needs an archive and an entry');
-        result = cmd.palette(ctx, args[0]!, args[1]!, { colors: f.colors === true, frame: num(f, 'frame') });
+        result = cmd.palette(ctx, args[0]!, args[1]!, { colors: f.colors === true, frame: num(f, 'frame'), tile: num(f, 'tile') });
         break;
       case 'palette-diff':
         need(args, 2, 'palette-diff needs two palettes, each <archive>/<name.pal>');

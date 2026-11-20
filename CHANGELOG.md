@@ -8,9 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
-- **The `dalib-ts` command reads client files from a shell.** `npx @eriscorp/dalib-ts <command>` lists archives and entries, prints text entries, describes sprites (frame rects, empty frames, the MPF animation header), resolves palettes, reads colour, cycling and palette tables, reads map tiles and SOTP flags, extracts entries, and renders EPF, MPF, HPF, SPF and EFA frames to PNG, as one frame or a contact sheet. Each command prints one line of JSON. It never writes to the client folder. `dalib-ts --help` lists the commands.
+- **The `dalib-ts` command reads client files from a shell.** `npx @eriscorp/dalib-ts <command>` lists archives and entries, prints text entries, describes sprites (frame rects, empty frames, the MPF animation header), resolves palettes, reads colour, cycling and palette tables, reads map tiles and SOTP flags, extracts entries, and renders EPF, MPF, HPF, SPF and EFA frames and ground tiles to PNG, as one frame or a contact sheet. A ground tile is named by the id a map holds (`render seo tilea.bmp --tiles 1,3-5`), and each tile resolves its own palette. Each command prints one line of JSON. It never writes to the client folder. `dalib-ts --help` lists the commands.
 - **`dalib-ts mcp` serves the same commands as MCP tools over stdio**, for an AI agent. The render tool returns the PNG as an image the agent can see.
 - **`encodePng(frame)`** writes an `RgbaFrame` as an RGBA PNG with no new dependency. It is Node.js only, like the `fromFile` factories.
+
+### Fixed
+
+- **`PaletteResolver` gives a ground tile the palette the client gives it.** For `tilea.bmp` and `tileas.bmp`, `frameIndex` is the tile's position in the tileset, from 0. Map ground tile N is at position N - 1, and the client keys its palette on N + 1, so the key is the position + 2. The resolver used the position + 1, one short. On a retail 7.41 client, 118 of 19,415 `tilea.bmp` tiles and 55 of 19,243 `tileas.bmp` tiles took the palette of the range before theirs. DALib's map renderer, Brigid and Taliesin already use the right key. The `PaletteIdKind` value `tileIndexPlus1` is now `tilePosition`.
 
 ## [3.3.0] - 2026-10-29
 

@@ -32,3 +32,17 @@ describe.skipIf(!hasClientArchive('hades.dat') || !hasClientArchive('legend.dat'
     expect(r.maxTileId).toBeGreaterThan(1000);
   });
 });
+
+describe.skipIf(!hasClientArchive('seo.dat'))('ground tiles against the real client', () => {
+  it('keys each tile on its map id + 1, as the client does', async () => {
+    // Map tile 278 opens a range in mptpal.tbl: id 279 maps to palette 34 and
+    // id 278 to palette 2. A key one short gives the tile the wrong palette.
+    expect((await call('palette', 'seo', 'tilea.bmp', '--tile', '278')).result).toMatchObject({ ruleId: 'tileset/mpt', paletteNumber: 34 });
+    const r = (await call('render', 'seo', 'tilea.bmp', '--tiles', '277-278', '--sheet', '2', '--inline')).result;
+    expect(r).toMatchObject({ tiles: [277, 278], width: 112, palette: { ruleId: 'tileset/mpt', paletteNumbers: [2, 34] } });
+  });
+
+  it('gives the tileset its tile count', async () => {
+    expect((await call('info', 'seo', 'tilea.bmp')).result).toMatchObject({ kind: 'tileset', tileCount: 19415 });
+  });
+});

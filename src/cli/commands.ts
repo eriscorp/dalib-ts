@@ -8,7 +8,7 @@ import { ColorTable } from '../drawing/ColorTable.js';
 import { EfaFile } from '../drawing/EfaFile.js';
 import { EpfFile } from '../drawing/EpfFile.js';
 import { epfFrameHeight, epfFrameWidth } from '../drawing/EpfFrame.js';
-import { renderEfa, renderEpf, renderHpf, renderMpf, renderSpfColorized, renderSpfPalettized } from '../drawing/Graphics.js';
+import { renderEfa, renderEpf, renderHpf, renderMpf, renderSpfColorized, renderSpfPalettized, renderTile } from '../drawing/Graphics.js';
 import { HpfFile } from '../drawing/HpfFile.js';
 import { MpfFile } from '../drawing/MpfFile.js';
 import { mpfFrameHeight, mpfFrameWidth } from '../drawing/MpfFrame.js';
@@ -18,6 +18,7 @@ import { matchPaletteRule } from '../drawing/paletteRules.js';
 import { PaletteTable } from '../drawing/PaletteTable.js';
 import { SpfFile } from '../drawing/SpfFile.js';
 import { spfFrameHeight, spfFrameWidth } from '../drawing/SpfFrame.js';
+import { Tileset } from '../drawing/Tileset.js';
 import { encodePng } from '../io/PngWriter.js';
 import { CliError, entryCount, insideFolder, type CliContext, type OpenArchive } from './context.js';
 
@@ -58,6 +59,10 @@ const ext = (name: string): string => name.slice(name.lastIndexOf('.') + 1).toLo
 
 const hex = (c: Color): string =>
   `#${[c.r, c.g, c.b].map((v) => v.toString(16).padStart(2, '0')).join('')}${c.a === 255 ? '' : c.a.toString(16).padStart(2, '0')}`;
+
+/** `tilea.bmp` and `tileas.bmp`: ground tilesets, addressed by the tile ids a map holds. */
+const isTileset = (a: OpenArchive, entry: DataArchiveEntry): boolean =>
+  matchPaletteRule(a.name, entry.entryName)?.ruleId.startsWith('tileset/') ?? false;
 
 function entryOf(a: OpenArchive, name: string): DataArchiveEntry {
   const entry = a.archive.get(name);
@@ -184,6 +189,12 @@ function describe(a: OpenArchive, entry: DataArchiveEntry, all?: boolean): Recor
     }
     case 'pal':
       return { ...base, colors: Palette.fromEntry(entry).length };
+    case 'bmp': {
+      if (!isTileset(a, entry)) return { ...base, palette };
+      // Map ground tile id N is the tile at position N - 1; id 0 is no tile.
+      const count = Tileset.fromEntry(entry).length;
+      return { ...base, kind: 'tileset', tileCount: count, tileIds: { first: 1, last: count }, palette };
+    }
     default:
       return { ...base, palette };
   }
@@ -261,6 +272,25 @@ export function parseFrames(spec: string | undefined, count: number, sheet: bool
   return out;
 }
 
+/** "1,3-5" as ground tile ids, as a map holds them: 1 is the first tile, 0 is no tile. */
+export function parseTiles(spec: string | undefined, count: number, sheet: boolean): number[] {
+  if (count === 0) throw new CliError('The tileset has no tiles');
+  if (!spec) return sheet ? Array.from({ length: count }, (_, i) => i + 1) : [1];
+  const out: number[] = [];
+  for (const part of spec.split(',')) {
+    const m = /^\s*(\d+)\s*(?:-\s*(\d+)\s*)?$/.exec(part);
+    if (!m) throw new CliError(`--tiles takes ground tile ids and ranges such as "1,3-5", not "${spec}"`);
+    const from = Number(m[1]);
+    const to = m[2] === undefined ? from : Number(m[2]);
+    for (let id = Math.min(from, to); id <= Math.max(from, to); id++) {
+      if (id === 0) throw new CliError('Ground tile 0 is no tile; the first tile is 1');
+      if (id > count) throw new CliError(`Ground tile ${id} is out of range: the tileset has tiles 1-${count}`);
+      out.push(id);
+    }
+  }
+  return out;
+}
+
 function parseBackground(spec: string | undefined): [number, number, number, number] {
   if (!spec || spec === 'transparent') return [0, 0, 0, 0];
   const m = /^#?([0-9a-f]{6})$/i.exec(spec);
@@ -300,6 +330,8 @@ export function compose(frames: RgbaFrame[], columns: number, scale: number, bg:
 
 export interface RenderOptions {
   frames?: string | undefined;
+  /** Ground tile ids, for a tileset: 1 is the first tile. */
+  tiles?: string | undefined;
   palette?: string | undefined;
   dye?: number | undefined;
   scale?: number | undefined;
@@ -309,7 +341,7 @@ export interface RenderOptions {
   out?: string | undefined;
 }
 
-/** Render frames of an EPF, MPF, HPF, SPF or EFA entry to a PNG. */
+/** Render frames of an EPF, MPF, HPF, SPF or EFA entry, or tiles of a ground tileset, to a PNG. */
 export function render(ctx: CliContext, archive: string, name: string, opts: RenderOptions = {}) {
   const a = ctx.open(archive);
   const entry = entryOf(a, name);
@@ -317,20 +349,35 @@ export function render(ctx: CliContext, archive: string, name: string, opts: Ren
   const scale = opts.scale ?? 1;
   if (!Number.isInteger(scale) || scale < 1 || scale > 16) throw new CliError('--scale takes a whole number from 1 to 16');
   if (opts.sheet !== undefined && (!Number.isInteger(opts.sheet) || opts.sheet < 1)) throw new CliError('--sheet takes a number of columns');
+  const tileset = isTileset(a, entry);
+  if (tileset && opts.frames !== undefined) {
+    throw new CliError('A tileset takes --tiles <ids>: the ground tile ids a map holds, where 1 is the first tile');
+  }
+  if (!tileset && opts.tiles !== undefined) throw new CliError('--tiles applies to a ground tileset (tilea.bmp, tileas.bmp)');
   if (opts.dye !== undefined && !['epf', 'mpf', 'hpf'].includes(kind)) throw new CliError(`--dye applies to EPF, MPF and HPF, not ${kind}`);
-  if (opts.palette !== undefined && !['epf', 'mpf', 'hpf'].includes(kind)) throw new CliError(`--palette applies to EPF, MPF and HPF; a ${kind} carries its own colours`);
+  if (opts.palette !== undefined && !tileset && !['epf', 'mpf', 'hpf'].includes(kind)) {
+    throw new CliError(`--palette applies to EPF, MPF, HPF and tilesets; a ${kind} carries its own colours`);
+  }
 
   let chosen: PaletteChoice | null = null;
+  const numbers: (number | undefined)[] = [];
   const paletteFor = (frame: number): Palette => {
     const c = choosePalette(ctx, a, entry, opts.palette, frame);
     chosen ??= c;
+    numbers.push(c.paletteNumber);
     return opts.dye === undefined ? c.palette : dyed(ctx, a, c.palette, opts.dye);
   };
 
   const sheet = opts.sheet !== undefined;
   let indexes: number[];
   let images: RgbaFrame[];
-  switch (kind) {
+  if (tileset) {
+    // A map's ground tile id N is the tile at position N - 1, and each tile
+    // resolves its own palette from that position.
+    const ts = Tileset.fromEntry(entry);
+    indexes = parseTiles(opts.tiles, ts.length, sheet);
+    images = indexes.map((id) => renderTile(ts.tiles[id - 1]!, paletteFor(id - 1)));
+  } else switch (kind) {
     case 'epf': {
       const f = EpfFile.fromEntry(entry);
       indexes = parseFrames(opts.frames, f.frames.length, sheet);
@@ -363,7 +410,7 @@ export function render(ctx: CliContext, archive: string, name: string, opts: Ren
       break;
     }
     default:
-      throw new CliError(`render takes an EPF, MPF, HPF, SPF or EFA entry, not .${kind}`);
+      throw new CliError(`render takes an EPF, MPF, HPF, SPF or EFA entry or a ground tileset, not .${kind}`);
   }
 
   const image = compose(images, opts.sheet ?? 1, scale, parseBackground(opts.bg));
@@ -385,10 +432,17 @@ export function render(ctx: CliContext, archive: string, name: string, opts: Ren
     result: {
       archive: a.name,
       name: entry.entryName,
-      frames: indexes,
+      ...(tileset ? { tiles: indexes } : { frames: indexes }),
       width: image.width,
       height: image.height,
-      ...(c ? { palette: { source: c.source, ...(c.ruleId ? { ruleId: c.ruleId, paletteNumber: c.paletteNumber } : {}) } } : {}),
+      ...(c
+        ? {
+            palette: {
+              source: c.source,
+              ...(c.ruleId ? (tileset ? { ruleId: c.ruleId, paletteNumbers: numbers } : { ruleId: c.ruleId, paletteNumber: c.paletteNumber }) : {}),
+            },
+          }
+        : {}),
       ...(opts.dye !== undefined ? { dye: opts.dye } : {}),
       ...(written ? { out: written } : {}),
     },
@@ -397,10 +451,24 @@ export function render(ctx: CliContext, archive: string, name: string, opts: Ren
 }
 
 /** The palette an entry resolves to, and its colours on request. */
-export function palette(ctx: CliContext, archive: string, name: string, opts: { colors?: boolean; frame?: number | undefined } = {}) {
+export function palette(
+  ctx: CliContext,
+  archive: string,
+  name: string,
+  opts: { colors?: boolean; frame?: number | undefined; tile?: number | undefined } = {},
+) {
   const a = ctx.open(archive);
   const entry = entryOf(a, name);
-  const resolved = new PaletteResolver(a.name, a.archive, ctx.provider).resolve(entry, opts.frame ?? 0);
+  let frame = opts.frame ?? 0;
+  if (isTileset(a, entry)) {
+    if (opts.frame !== undefined) throw new CliError('A tileset takes --tile <id>: a ground tile id as a map holds it, where 1 is the first tile');
+    const tile = opts.tile ?? 1;
+    if (!Number.isInteger(tile) || tile < 1) throw new CliError('--tile takes a ground tile id from 1; 0 is no tile');
+    frame = tile - 1;
+  } else if (opts.tile !== undefined) {
+    throw new CliError('--tile applies to a ground tileset (tilea.bmp, tileas.bmp)');
+  }
+  const resolved = new PaletteResolver(a.name, a.archive, ctx.provider).resolve(entry, frame);
   const rule = matchPaletteRule(a.name, entry.entryName);
   if (!resolved) return { archive: a.name, name: entry.entryName, resolved: false, ruleId: rule?.ruleId ?? null };
   return {

@@ -358,21 +358,25 @@ describe('PaletteResolver — tilesets', () => {
   const archive = buildArchive([
     { name: 'mptpal.tbl', data: enc('3 7\n') },
     { name: 'mpt007.pal', data: palBytes(110) },
-    { name: 'mpspal.tbl', data: enc('1 4\n') },
+    { name: 'mpspal.tbl', data: enc('2 4\n') },
     { name: 'mps004.pal', data: palBytes(111) },
     { name: 'tilea.bmp', data: stub },
     { name: 'tileas.bmp', data: stub },
   ]);
   const resolver = new PaletteResolver('seo.dat', archive, noSiblings);
 
-  it('keys the ground tileset on tileIndex + 1', () => {
-    const r = resolver.resolve(archive.get('tilea.bmp')!, 2)!;
+  it('keys a ground tile on its position + 2, its map id + 1', () => {
+    // Position 1 is map ground tile 2, which the client looks up as id 3.
+    const r = resolver.resolve(archive.get('tilea.bmp')!, 1)!;
     expect(r.ruleId).toBe('tileset/mpt');
     expect(r.paletteNumber).toBe(7);
     expect(r.palette.get(1).r).toBe(110);
+    // Position 2 (map tile 3, id 4) is past the one mapped id.
+    expect(resolver.resolve(archive.get('tilea.bmp')!, 2)).toBeNull();
   });
 
-  it('keys the static tileset on tileIndex + 1', () => {
+  it('keys the snow tileset the same way', () => {
+    // Position 0 is map ground tile 1, looked up as id 2.
     const r = resolver.resolve(archive.get('tileas.bmp')!, 0)!;
     expect(r.ruleId).toBe('tileset/mps');
     expect(r.paletteNumber).toBe(4);
@@ -380,7 +384,7 @@ describe('PaletteResolver — tilesets', () => {
   });
 
   it('returns null when the mapped palette is absent', () => {
-    // Tile index 0 → id 1 is unmapped and this fixture has no palette 0.
+    // Position 0 → id 2 is unmapped in mptpal and this fixture has no palette 0.
     expect(resolver.resolve(archive.get('tilea.bmp')!)).toBeNull();
   });
 });
