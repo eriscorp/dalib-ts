@@ -19,7 +19,9 @@ export type PaletteSourceKind = 'table' | 'indexed' | 'fixed' | 'constant';
  * - `identifier3`: `entry.tryGetNumericIdentifier(3)` (khan entries).
  * - `legendItem`: `(identifier - 1) * 266 + frameIndex + 1` (legend items).
  * - `mpfInternal`: the `paletteNumber` field inside the `.mpf` file.
- * - `tileIndexPlus1`: `frameIndex + 1` (tileset tiles).
+ * - `tilePosition`: `frameIndex + 2` (tileset tiles). `frameIndex` is the tile's
+ *   position in the tileset, from 0. A map's ground tile id N is position N - 1,
+ *   and the client keys its palette on N + 1.
  * - `lowestKey`: the lowest key in the palette map (khan bodies).
  * - `dyeIndexZero`: a blank palette dyed with color-table entry 0 (khan pants).
  */
@@ -29,7 +31,7 @@ export type PaletteIdKind =
   | 'identifier3'
   | 'legendItem'
   | 'mpfInternal'
-  | 'tileIndexPlus1'
+  | 'tilePosition'
   | 'lowestKey'
   | 'dyeIndexZero';
 
@@ -225,10 +227,10 @@ export function matchPaletteRule(archiveName: string, entryName: string): Palett
 
   // Tilesets — spec §2.5.
   if (entry === 'tilea.bmp') {
-    return { ruleId: 'tileset/mpt', kind: 'table', sourceArchive: 'self', tablePattern: 'mptpal', palettePattern: 'mpt', idKind: 'tileIndexPlus1' };
+    return { ruleId: 'tileset/mpt', kind: 'table', sourceArchive: 'self', tablePattern: 'mptpal', palettePattern: 'mpt', idKind: 'tilePosition' };
   }
   if (entry === 'tileas.bmp') {
-    return { ruleId: 'tileset/mps', kind: 'table', sourceArchive: 'self', tablePattern: 'mpspal', palettePattern: 'mps', idKind: 'tileIndexPlus1' };
+    return { ruleId: 'tileset/mps', kind: 'table', sourceArchive: 'self', tablePattern: 'mpspal', palettePattern: 'mps', idKind: 'tilePosition' };
   }
 
   // .mpf — spec §2.4. The id comes from inside the file.
