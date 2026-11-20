@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { deflateSync, inflateSync } from 'node:zlib';
-import type { RgbaFrame } from '../../src/constants.js';
+import { TILE_SIZE, TILE_WIDTH, type RgbaFrame } from '../../src/constants.js';
 import { MapFile } from '../../src/data/MapFile.js';
 import { EfaFile } from '../../src/drawing/EfaFile.js';
 import { EpfFile } from '../../src/drawing/EpfFile.js';
@@ -71,6 +71,25 @@ beforeAll(() => {
     buildArchiveBytes([{ name: 'color0.tbl', data: enc(['2', '3', '9,9,9', '8,8,8'].join('\n')) }]),
   );
   writeFileSync(join(client, 'ia.dat'), buildArchiveBytes([{ name: 'sotp.dat', data: new Uint8Array([0x0f, 0x80, 0x00]) }]));
+  // Three ground tiles, every byte index 1. Map tile N keys its palette on
+  // N + 1, so tiles 1-3 take palettes 10-12; palette N holds (N, 0, 0) at index 1.
+  const pal = (red: number): Uint8Array => {
+    const bytes = new Uint8Array(768);
+    bytes[3] = red;
+    return bytes;
+  };
+  writeFileSync(
+    join(client, 'seo.dat'),
+    buildArchiveBytes([
+      { name: 'tilea.bmp', data: new Uint8Array(TILE_SIZE * 3).fill(1) },
+      { name: 'tileas.bmp', data: new Uint8Array(0) },
+      { name: 'mptpal.tbl', data: enc('2 10\n3 11\n4 12\n') },
+      { name: 'mpt010.pal', data: pal(10) },
+      { name: 'mpt011.pal', data: pal(11) },
+      { name: 'mpt012.pal', data: pal(12) },
+      { name: 'other.bmp', data: new Uint8Array(4) },
+    ]),
+  );
   writeFileSync(join(client, 'readme.txt'), 'not an archive');
 
   const a = new MapFile(2, 2);
@@ -162,6 +181,7 @@ describe('the CLI', () => {
       ['hades.dat', 15],
       ['ia.dat', 1],
       ['Legend.dat', 1],
+      ['seo.dat', 7],
     ]);
     expect(entryCount(join(client, 'ia.dat'))).toBe(1);
   });
@@ -169,7 +189,7 @@ describe('the CLI', () => {
   it('ls: a glob, a prefix, every archive, and the cut', async () => {
     expect((await call('ls', 'hades', '*.mpf')).result.items.map((r: Out) => r.name)).toEqual(['mns001.mpf', 'mns002.mpf']);
     expect((await call('ls', 'hades', 'mns')).result.total).toBe(3);
-    expect((await call('ls', '*', '*.tbl')).result.items.map((r: Out) => r.archive)).toEqual(['hades.dat', 'hades.dat', 'Legend.dat']);
+    expect((await call('ls', '*', '*.tbl')).result.items.map((r: Out) => r.archive)).toEqual(['hades.dat', 'hades.dat', 'Legend.dat', 'seo.dat']);
     // Case folded: the installer writes Legend.dat
     expect((await call('ls', 'legend')).result.items[0]).toMatchObject({ archive: 'Legend.dat', name: 'color0.tbl' });
     expect(await call('ls', 'nothing')).toMatchObject({ code: 1, error: `No archive "nothing" in ${client}` });
@@ -251,16 +271,49 @@ describe('render', () => {
     const err = async (...a: string[]) => (await call('render', 'hades', ...a, '--inline')).error;
     expect(await err('mns002.mpf')).toMatch(/^No palette rule resolves hades\.dat\/mns002\.mpf; pass --palette/);
     expect(await err('test.hpf')).toMatch(/^No palette rule resolves hades\.dat\/test\.hpf/);
-    expect(await err('notes.txt')).toBe('render takes an EPF, MPF, HPF, SPF or EFA entry, not .txt');
+    expect(await err('notes.txt')).toBe('render takes an EPF, MPF, HPF, SPF or EFA entry or a ground tileset, not .txt');
     expect(await err('mns001.mpf', '--frames', '9')).toBe('Frame 9 is out of range: the entry has 3 frames (0-2)');
     expect(await err('mns001.mpf', '--frames', 'x')).toBe('--frames takes indexes and ranges such as "0,3-5", not "x"');
     expect(await err('mns001.mpf', '--scale', '0')).toBe('--scale takes a whole number from 1 to 16');
     expect(await err('mns001.mpf', '--sheet', '0')).toBe('--sheet takes a number of columns');
     expect(await err('mns001.mpf', '--bg', 'red')).toBe('--bg takes "transparent" or #rrggbb, not "red"');
     expect(await err('test.spf', '--dye', '1')).toBe('--dye applies to EPF, MPF and HPF, not spf');
-    expect(await err('test.spf', '--palette', 'test.pal')).toBe('--palette applies to EPF, MPF and HPF; a spf carries its own colours');
+    expect(await err('test.spf', '--palette', 'test.pal')).toBe('--palette applies to EPF, MPF, HPF and tilesets; a spf carries its own colours');
     expect(await err('mns001.mpf', '--scale', '16', '--sheet', '3', '--max', '100')).toMatch(
       /^The render would be \d+x\d+, over the 100 px limit/,
+    );
+  });
+
+  it('renders ground tiles by the ids a map holds, each in its own palette', async () => {
+    const r = await run(['render', 'seo', 'tilea.bmp', '--tiles', '1-3', '--sheet', '3', '--inline', '--client', client], {});
+    const o = r.out as Out;
+    expect(o.result).toMatchObject({ tiles: [1, 2, 3], width: TILE_WIDTH * 3, palette: { source: 'auto', ruleId: 'tileset/mpt', paletteNumbers: [10, 11, 12] } });
+    expect(o.result.frames).toBeUndefined();
+    // The middle of each tile's diamond is index 1 of that tile's palette.
+    const png = decodePng(Buffer.from((r.content![0] as { data: string }).data, 'base64'));
+    const red = (tile: number) => png.rgba[(13 * png.width + tile * TILE_WIDTH + 28) * 4];
+    expect([red(0), red(1), red(2)]).toEqual([10, 11, 12]);
+    // A corner is outside the diamond, so it is transparent.
+    expect(png.rgba[3]).toBe(0);
+    // With no --tiles: tile 1. A named palette serves every tile.
+    expect((await call('render', 'seo', 'tilea.bmp', '--inline')).result.tiles).toEqual([1]);
+    expect((await call('render', 'seo', 'tilea.bmp', '--sheet', '3', '--palette', 'mpt012.pal', '--inline')).result).toMatchObject({
+      tiles: [1, 2, 3],
+      palette: { source: 'seo.dat/mpt012.pal' },
+    });
+  });
+
+  it('refuses a frame index, tile 0 and an out-of-range tile on a tileset', async () => {
+    const err = async (...a: string[]) => (await call('render', 'seo', ...a, '--inline')).error;
+    expect(await err('tilea.bmp', '--frames', '0')).toBe('A tileset takes --tiles <ids>: the ground tile ids a map holds, where 1 is the first tile');
+    expect(await err('tilea.bmp', '--tiles', '0-1')).toBe('Ground tile 0 is no tile; the first tile is 1');
+    expect(await err('tilea.bmp', '--tiles', '4')).toBe('Ground tile 4 is out of range: the tileset has tiles 1-3');
+    expect(await err('tilea.bmp', '--tiles', 'x')).toBe('--tiles takes ground tile ids and ranges such as "1,3-5", not "x"');
+    expect(await err('tilea.bmp', '--dye', '1')).toBe('--dye applies to EPF, MPF and HPF, not bmp');
+    expect(await err('tileas.bmp')).toBe('The tileset has no tiles');
+    expect(await err('other.bmp')).toBe('render takes an EPF, MPF, HPF, SPF or EFA entry or a ground tileset, not .bmp');
+    expect((await call('render', 'hades', 'test.epf', '--tiles', '1', '--inline')).error).toBe(
+      '--tiles applies to a ground tileset (tilea.bmp, tileas.bmp)',
     );
   });
 
@@ -289,6 +342,29 @@ describe('palettes, tables, maps, SOTP and extract', () => {
       ruleId: 'mpf/mns',
     });
     expect((await call('palette', 'hades', 'notes.txt')).result.ruleId).toBeNull();
+  });
+
+  it('palette: a ground tile by the id a map holds', async () => {
+    expect((await call('palette', 'seo', 'tilea.bmp')).result).toMatchObject({ ruleId: 'tileset/mpt', paletteNumber: 10 });
+    expect((await call('palette', 'seo', 'tilea.bmp', '--tile', '3')).result.paletteNumber).toBe(12);
+    expect((await call('palette', 'seo', 'tilea.bmp', '--frame', '1')).error).toBe(
+      'A tileset takes --tile <id>: a ground tile id as a map holds it, where 1 is the first tile',
+    );
+    expect((await call('palette', 'seo', 'tilea.bmp', '--tile', '0')).error).toBe('--tile takes a ground tile id from 1; 0 is no tile');
+    expect((await call('palette', 'hades', 'mns001.mpf', '--tile', '1')).error).toBe('--tile applies to a ground tileset (tilea.bmp, tileas.bmp)');
+  });
+
+  it('info: a tileset gives its tile count and id range', async () => {
+    expect((await call('info', 'seo', 'tilea.bmp')).result).toEqual({
+      archive: 'seo.dat',
+      name: 'tilea.bmp',
+      bytes: TILE_SIZE * 3,
+      kind: 'tileset',
+      tileCount: 3,
+      tileIds: { first: 1, last: 3 },
+      palette: { ruleId: 'tileset/mpt', kind: 'table' },
+    });
+    expect((await call('info', 'seo', 'other.bmp')).result).toMatchObject({ kind: 'bmp', palette: null });
   });
 
   it('palette-diff: the indexes where two palettes differ', async () => {
@@ -416,6 +492,8 @@ describe('the MCP front', () => {
       ['dalib_cat', { archive: 'hades', entry: 'notes.txt' }],
       ['dalib_info', { archive: 'hades', entry: 'test.epf' }],
       ['dalib_palette', { archive: 'hades', entry: 'mns001.mpf' }],
+      ['dalib_palette', { archive: 'seo', entry: 'tilea.bmp', tile: 2 }],
+      ['dalib_render', { archive: 'seo', entry: 'tilea.bmp', tiles: '2-3' }],
       ['dalib_palette_diff', { first: 'hades/test.pal', second: 'hades/other.pal' }],
       ['dalib_tbl', { archive: 'legend', entry: 'color0.tbl' }],
       ['dalib_map', { file: join(out, 'a.map'), size: '2x2' }],

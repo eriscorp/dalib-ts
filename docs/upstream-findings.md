@@ -93,6 +93,8 @@ them agreeing. Reconciling the names is a cross-repo decision.
 Its own comment records that `.hpf`, `.mpf` and tilesets are specified but unimplemented.
 `dalib-ts` implements all of them — `hpf/stc`, `hpf/sts`, `mpf/mns`, `tileset/mpt`, `tileset/mps`.
 
+The comment holds tilesets back "pending the mpt +1 (spec) vs +2 (DALib RenderMap) tile-keying reconciliation". That is settled: +2 is correct when the index is the tile's position in the tileset, from 0. Map ground tile N is at position N - 1, and the client keys its palette on N + 1. The spec's "tileIndex + 1" counts tiles from 1, as a map does. `RenderMap` (`GetPaletteForId(index + 2)` after `--bgIndex`), Brigid's `TileRepository` and Taliesin's map renderer agree. dalib-ts used the position + 1 until the fix in its Unreleased section, and 118 retail `tilea.bmp` tiles took the wrong palette. A C# port of the tileset rules takes +2 on the position.
+
 ---
 
 ## 3. Checked and NOT reported

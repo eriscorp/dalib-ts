@@ -62,11 +62,12 @@ export const TOOLS: McpTool[] = [
   {
     name: 'dalib_render',
     description:
-      'Render frames of an EPF, MPF, HPF, SPF or EFA entry and return the PNG as an image. The palette resolves by the client rules unless one is named. sheet lays several frames out in that many columns. A render over 1024 px is refused unless max allows it.',
+      'Render frames of an EPF, MPF, HPF, SPF or EFA entry, or tiles of a ground tileset (tilea.bmp, tileas.bmp in seo.dat), and return the PNG as an image. The palette resolves by the client rules unless one is named. sheet lays several frames out in that many columns. A render over 1024 px is refused unless max allows it.',
     properties: {
       archive: ARCHIVE,
       entry: ENTRY,
       frames: stringProp('Frame indexes and ranges, such as "0,3-5". Default: frame 0, or every frame with sheet'),
+      tiles: stringProp('For a tileset: ground tile ids as a map holds them, such as "1,3-5"; 1 is the first tile. Default: tile 1'),
       palette: stringProp('"auto" (default), a .pal in the same archive, or <archive>/<name.pal>'),
       dye: numberProp('A dye index from color0.tbl'),
       scale: numberProp('A whole-number scale, 1 to 16'),
@@ -81,7 +82,7 @@ export const TOOLS: McpTool[] = [
       argText(a.archive),
       argText(a.entry),
       '--inline',
-      ...flagArgs(a, ['frames', 'palette', 'dye', 'scale', 'sheet', 'bg', 'max', 'out']),
+      ...flagArgs(a, ['frames', 'tiles', 'palette', 'dye', 'scale', 'sheet', 'bg', 'max', 'out']),
     ],
   },
   {
@@ -92,9 +93,10 @@ export const TOOLS: McpTool[] = [
       entry: ENTRY,
       colors: booleanProp('Give the 256 colours'),
       frame: numberProp('The frame, for rules that vary by frame'),
+      tile: numberProp('For a tileset: the ground tile id as a map holds it; 1 is the first tile'),
     },
     required: ['archive', 'entry'],
-    argv: (a) => ['palette', argText(a.archive), argText(a.entry), ...flagArgs(a, ['colors', 'frame'])],
+    argv: (a) => ['palette', argText(a.archive), argText(a.entry), ...flagArgs(a, ['colors', 'frame', 'tile'])],
   },
   {
     name: 'dalib_palette_diff',
