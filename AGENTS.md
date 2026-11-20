@@ -37,6 +37,12 @@ Some tests read a real Dark Ages client installation. `tests/clientAssets.ts` fi
 
 **A skipped client test is not a passed test.** These tests skip when they do not find the archive they need. The reporter shows the same skip for "no client is installed" and for "the client is installed but the lookup failed". Confirm that the client tests run before you trust them.
 
+## Reading client files without a script
+
+Do not write a throwaway script to look inside a client file. Use the CLI: `npm run -s dalib-ts -- <command> --client <dir>` in this checkout, or `npx @eriscorp/dalib-ts <command>` anywhere. `--help` lists the commands. `render` writes a PNG that you can open and look at; `info` gives frame rects and empty frames; `palette` gives the rule that resolves an entry. `dalib-ts mcp` serves the same commands as MCP tools.
+
+The code is `src/cli/`. Each command calls the library's public classes, so a feature the CLI needs belongs in the library first. `src/cli/agentMcp.ts` is a house module copied from hyb-electron-template: change it there, not here. `src/cli/bin.ts` is out of coverage because only a spawned process runs it; `npm run test:dist` runs the built bin.
+
 ## Branches
 
 Cut every branch from `main`. Target every pull request at `main`. Do not base a branch on another feature branch.

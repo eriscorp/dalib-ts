@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **The `dalib-ts` command reads client files from a shell.** `npx @eriscorp/dalib-ts <command>` lists archives and entries, prints text entries, describes sprites (frame rects, empty frames, the MPF animation header), resolves palettes, reads colour, cycling and palette tables, reads map tiles and SOTP flags, extracts entries, and renders EPF, MPF, HPF, SPF and EFA frames to PNG, as one frame or a contact sheet. Each command prints one line of JSON. It never writes to the client folder. `dalib-ts --help` lists the commands.
+- **`dalib-ts mcp` serves the same commands as MCP tools over stdio**, for an AI agent. The render tool returns the PNG as an image the agent can see.
+- **`encodePng(frame)`** writes an `RgbaFrame` as an RGBA PNG with no new dependency. It is Node.js only, like the `fromFile` factories.
+
 ## [3.3.0] - 2026-10-29
 
 This release also carries the 3.2.0 changes. 3.2.0 was not published to npm.

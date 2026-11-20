@@ -13,6 +13,9 @@ export default defineConfig({
         '**/*.config.*',
         // Pure re-export barrel — counting it only inflates the totals.
         'src/index.ts',
+        // The CLI's process entry: it reads process.argv and stdin, so only a
+        // spawned process runs it. `npm run test:dist` runs the built bin.
+        'src/cli/bin.ts',
       ],
       thresholds: {
         // Global floors, set just under the measured numbers so the suite guards

@@ -18,6 +18,9 @@
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "bin": {
+    "dalib-ts": "./dist/cli.cjs"
+  },
   "files": [
     "dist",
     "CHANGELOG.md"
@@ -29,11 +32,13 @@
     "test:browser": "vitest --browser",
     "lint": "tsc --noEmit",
     "test:coverage": "vitest run --coverage",
-    "test:dist": "node tests/distSmoke.mjs"
+    "test:dist": "node tests/distSmoke.mjs",
+    "dalib-ts": "node scripts/dalib.mjs"
   },
   "devDependencies": {
     "@types/node": "^25.5.2",
     "@vitest/coverage-v8": "^4.1.12",
+    "esbuild": "0.27.2",
     "tsup": "^8.0.0",
     "typescript": "^5.4.0",
     "vitest": "^4.1.12"
